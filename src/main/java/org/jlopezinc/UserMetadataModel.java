@@ -26,7 +26,7 @@ public class UserMetadataModel {
     static class People {
         private String type;
         private String name;
-        private String driversLicence;
+        private String driversLicense;
         private String phoneNumber;
     }
 

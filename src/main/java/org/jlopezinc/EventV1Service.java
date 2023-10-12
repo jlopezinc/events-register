@@ -2,9 +2,11 @@ package org.jlopezinc;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.quarkus.logging.Log;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.ws.rs.core.NoContentException;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbAsyncIndex;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbAsyncTable;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbEnhancedAsyncClient;
@@ -33,13 +35,14 @@ public class EventV1Service {
         userModelTable = dynamoDbEnhancedAsyncClient.table(EVENTS_TABLE, TableSchema.fromClass(UserModelDB.class));
     }
 
-    public Uni<UserModel> getByEventAndQrToken (String event, String token){
-        Key partitioKey = Key.builder().partitionValue(event).sortValue(token).build();
+    public Uni<UserModel> getByEventAndEmail (String event, String email){
+        Key partitioKey = Key.builder().partitionValue(event).sortValue(email).build();
         return Uni.createFrom().completionStage(() -> userModelTable.getItem(partitioKey)).onItem().transform(
             userModelDbTransform
         );
     }
 
+    /** Sample with a GSI
     public Uni<UserModel> getByEventAndEmail(String event, String email) {
         DynamoDbAsyncIndex<UserModelDB> byEmail = userModelTable.index("byEmail");
 
@@ -59,14 +62,19 @@ public class EventV1Service {
             });
             return userModelDBCompletableFuture;
         }).map(userModelDbTransform);
-    }
+    }*/
 
-    public Uni<UserModel> checkInByEventAndQrToken (String event, String token, String who){
-        return getByEventAndQrToken(event, token)
+    public Uni<UserModel> checkInByEventAndEmail(String event, String email, String who){
+        return getByEventAndEmail(event, email)
                 .onItem().call(userModel -> {
                     if (userModel == null){
-                        return Uni.createFrom().nullItem();
+                        return Uni.createFrom().failure(new NoContentException("Not Found"));
                     }
+                    if (userModel.getMetadata().getCheckIn() != null && userModel.getMetadata().getCheckIn().getCheckInAt() != null){
+                        Log.info("user " + email + ", (" + event + ") already checked in at " + userModel.getMetadata().getCheckIn().getCheckInAt() + " by " + who);
+                        return Uni.createFrom().failure(new NoContentException("Already checked in"));
+                    }
+
                     userModel.getMetadata().setCheckIn(new UserMetadataModel.CheckIn(){{
                         setCheckInAt(new Date());
                         setByWho(who);
@@ -86,7 +94,6 @@ public class EventV1Service {
                 setEventName(userModelDB.getEventName());
                 setPaid(userModelDB.isPaid());
                 setUserEmail(userModelDB.getUserEmail());
-                setQrToken(userModelDB.getQrToken());
                 setVehicleType(userModelDB.getVehicleType());
                 try {
                     setMetadata(objectMapper.readValue(userModelDB.getMetadata(), UserMetadataModel.class));
@@ -102,7 +109,6 @@ public class EventV1Service {
             setEventName(userModel.getEventName());
             setPaid(userModel.isPaid());
             setUserEmail(userModel.getUserEmail());
-            setQrToken(userModel.getQrToken());
             setVehicleType(userModel.getVehicleType());
             try {
                 setMetadata(objectMapper.writeValueAsString(userModel.getMetadata()));

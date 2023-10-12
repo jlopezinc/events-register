@@ -17,34 +17,24 @@ public class UserModelDB {
     public UserModelDB(){
 
     }
-
     private String eventName;
     private String userEmail;
 
-    private String qrToken;
     private boolean paid;
     private String vehicleType;
     private String metadata;
 
     @DynamoDbPartitionKey
-    @DynamoDbSecondarySortKey(indexNames = "byEmail")
     @DynamoDbAttribute(EVENT_PK)
     public String getEventName() {
         return eventName;
     }
 
-    @DynamoDbSortKey
-    @DynamoDbAttribute("user_token")
-    public String getQrToken() {
-        return qrToken;
-    }
-
     @DynamoDbAttribute("email")
-    @DynamoDbSecondaryPartitionKey(indexNames = "byEmail")
+    @DynamoDbSortKey
     public String getUserEmail() {
         return userEmail;
     }
-
 
     @DynamoDbAttribute("paid")
     public Boolean isPaid() {

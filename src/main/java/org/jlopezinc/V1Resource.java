@@ -1,6 +1,9 @@
 package org.jlopezinc;
 
+import io.quarkus.security.Authenticated;
+import io.quarkus.security.identity.SecurityIdentity;
 import io.smallrye.mutiny.Uni;
+import jakarta.annotation.security.RolesAllowed;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;
@@ -9,33 +12,40 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
+import org.jboss.logging.Logger;
 
 @Path("/v1")
 @ApplicationScoped
+@Authenticated
 public class V1Resource {
+
+    private static final Logger LOG = Logger.getLogger(V1Resource.class);
+
+    @Inject
+    SecurityIdentity securityIdentity;
 
     @Inject
     EventV1Service eventV1Service;
 
-    @GET
-    @Path("/{event}/{qrToken}")
-    @Produces(MediaType.APPLICATION_JSON)
-    public Uni<UserModel> getUser(@PathParam("event") String event, @PathParam("qrToken") String qrToken){
-        return eventV1Service.getByEventAndQrToken(event, qrToken);
-    }
 
     @GET
-    @Path("/{event}/email/{email}")
+    @Path("/{event}/{email}")
     @Produces(MediaType.APPLICATION_JSON)
     public Uni<UserModel> getUserByEmail(@PathParam("event") String event, @PathParam("email") String email){
+        String cognitoUser = getCognitoUser();
         return eventV1Service.getByEventAndEmail(event, email);
     }
 
     @PUT
-    @Path("/{event}/{qrToken}")
+    @Path("/{event}/{email}")
     @Produces(MediaType.APPLICATION_JSON)
-    public Uni<UserModel> checkInToken(@PathParam("event") String event, @PathParam("qrToken") String qrToken){
-        return  eventV1Service.checkInByEventAndQrToken(event, qrToken, null); //todo
+    public Uni<UserModel> checkInToken(@PathParam("event") String event, @PathParam("email") String email){
+        String cognitoUser = getCognitoUser();
+        return  eventV1Service.checkInByEventAndEmail(event, email, cognitoUser);
+    }
+
+    private String getCognitoUser(){
+        return securityIdentity.getPrincipal().getName();
     }
 
 
