@@ -13,9 +13,9 @@
       Properties:
         Handler: not.used.in.provided.runtimei
         Runtime: provided
-        CodeUri: function.zip
+        CodeUri: target/function.zip
         MemorySize: 128
-        Policies:
+        Policies: 
           - AWSLambdaBasicExecutionRole
           - AmazonDynamoDBFullAccess
         Timeout: 15

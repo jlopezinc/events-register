@@ -32,8 +32,14 @@ public class V1Resource {
     @Path("/{event}/{email}")
     @Produces(MediaType.APPLICATION_JSON)
     public Uni<UserModel> getUserByEmail(@PathParam("event") String event, @PathParam("email") String email){
-        String cognitoUser = getCognitoUser();
         return eventV1Service.getByEventAndEmail(event, email);
+    }
+
+    @GET
+    @Path("/{event}/counters")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Uni<CountersModel> getCountersByEvent(@PathParam("event") String event){
+        return eventV1Service.getCountersByEvent(event);
     }
 
     @PUT
