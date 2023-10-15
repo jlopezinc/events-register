@@ -11,6 +11,7 @@ public class UserModelDB extends EventsRegisterDb {
     private boolean paid;
     private String vehicleType;
     private String metadata;
+    private boolean checkedIn;
 
     @DynamoDbAttribute("paid")
     public Boolean isPaid() {
@@ -25,5 +26,10 @@ public class UserModelDB extends EventsRegisterDb {
     @DynamoDbAttribute("metadata")
     public String getMetadata() {
         return metadata;
+    }
+
+    @DynamoDbAttribute("checkedIn")
+    public boolean isCheckedIn() {
+        return checkedIn;
     }
 }

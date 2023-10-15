@@ -6,6 +6,7 @@ import io.smallrye.mutiny.Uni;
 import jakarta.annotation.security.RolesAllowed;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
@@ -48,6 +49,14 @@ public class V1Resource {
     public Uni<UserModel> checkInToken(@PathParam("event") String event, @PathParam("email") String email){
         String cognitoUser = getCognitoUser();
         return  eventV1Service.checkInByEventAndEmail(event, email, cognitoUser);
+    }
+
+    @DELETE
+    @Path("/{event}/{email}")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Uni<UserModel> cancelCheckInToken(@PathParam("event") String event, @PathParam("email") String email){
+        String cognitoUser = getCognitoUser();
+        return  eventV1Service.cancelCheckInByEventAndEmail(event, email, cognitoUser);
     }
 
     private String getCognitoUser(){

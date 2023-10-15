@@ -13,7 +13,6 @@ import software.amazon.awssdk.enhanced.dynamodb.DynamoDbAsyncTable;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbEnhancedAsyncClient;
 import software.amazon.awssdk.enhanced.dynamodb.Key;
 import software.amazon.awssdk.enhanced.dynamodb.TableSchema;
-import software.amazon.awssdk.utils.StringUtils;
 
 import java.util.Date;
 import java.util.concurrent.CompletableFuture;
@@ -95,7 +94,8 @@ public class EventV1Service {
                     if (userModel == null){
                         return Uni.createFrom().failure(new NoContentException("Not Found"));
                     }
-                    if (userModel.getMetadata().getCheckIn() != null && userModel.getMetadata().getCheckIn().getCheckInAt() != null){
+
+                    if (userModel.isCheckedIn()){
                         Log.info("user " + email + ", (" + event + ") already checked in at " + userModel.getMetadata().getCheckIn().getCheckInAt() + " by " + who);
                         return Uni.createFrom().failure(new NoContentException("Already checked in"));
                     }
@@ -104,20 +104,54 @@ public class EventV1Service {
                         setCheckInAt(new Date());
                         setByWho(who);
                     }});
+                    userModel.setCheckedIn(true);
                     UserModelDB userModelDB = userModelTransform(userModel);
 
-                    incrementCheckInCounter(userModelDB);
+                    incrementOrDecrementCheckInCounter(userModelDB, true);
 
                     return Uni.createFrom().completionStage(() -> userModelTable.updateItem(userModelDB));
                 });
     }
 
-    private void incrementCheckInCounter(UserModelDB userModelDB) {
+    public Uni<UserModel> cancelCheckInByEventAndEmail(String event, String email, String who){
+        return getByEventAndEmail(event, email)
+                .onItem().call(userModel -> {
+                    if (userModel == null){
+                        return Uni.createFrom().failure(new NoContentException("Not Found"));
+                    }
+
+                    if (!userModel.isCheckedIn()){
+                        Log.info("Cancelling user " + email + ", (" + event + ") failed because it's not checked (by "+ who + ")");
+                        return Uni.createFrom().failure(new NoContentException("Already checked in"));
+                    }
+
+                    userModel.getMetadata().setCheckIn(new UserMetadataModel.CheckIn(){{
+                        setCheckInAt(null);
+                        setByWho(null);
+                    }});
+                    userModel.setCheckedIn(false);
+                    UserModelDB userModelDB = userModelTransform(userModel);
+
+                    incrementOrDecrementCheckInCounter(userModelDB, false);
+
+                    return Uni.createFrom().completionStage(() -> userModelTable.updateItem(userModelDB));
+                });
+    }
+
+    private void incrementOrDecrementCheckInCounter(UserModelDB userModelDB, boolean increment) {
         String sortKey = CHECK_IN_COUNTER + userModelDB.getVehicleType();
-        UserModelDB counter = new UserModelDB();
-        counter.setEventName(userModelDB.getEventName());
-        counter.setUserEmail(sortKey);
-        userModelTable.updateItem(counter);
+        Key key = Key.builder().partitionValue(userModelDB.getEventName()).sortValue(sortKey).build();
+        Uni.createFrom().completionStage(() -> counterModelTable.getItem(key)).onItem().call(
+                counterDB -> {
+                    if (increment){
+                        counterDB.setCount(counterDB.getCount() + 1);
+                    } else {
+                        counterDB.setCount(counterDB.getCount() - 1);
+                    }
+                    counterModelTable.updateItem(counterDB);
+                    return Uni.createFrom().nullItem();
+                }
+        );
     }
 
 
@@ -132,6 +166,7 @@ public class EventV1Service {
                 setPaid(userModelDB.isPaid());
                 setUserEmail(userModelDB.getUserEmail());
                 setVehicleType(userModelDB.getVehicleType());
+                setCheckedIn(userModelDB.isCheckedIn());
                 try {
                     setMetadata(objectMapper.readValue(userModelDB.getMetadata(), UserMetadataModel.class));
                 } catch (JsonProcessingException e) {
@@ -147,6 +182,7 @@ public class EventV1Service {
             setPaid(userModel.isPaid());
             setUserEmail(userModel.getUserEmail());
             setVehicleType(userModel.getVehicleType());
+            setCheckedIn(userModel.isCheckedIn());
             try {
                 setMetadata(objectMapper.writeValueAsString(userModel.getMetadata()));
             } catch (JsonProcessingException e) {

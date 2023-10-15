@@ -8,5 +8,6 @@ public class UserModel {
     private String userEmail;
     private boolean paid;
     private String vehicleType;
+    private boolean checkedIn;
     private UserMetadataModel metadata;
 }
