@@ -1,4 +1,4 @@
-package org.jlopezinc;
+package org.jlopezinc.model;
 
 import lombok.Data;
 

@@ -1,4 +1,4 @@
-package org.jlopezinc;
+package org.jlopezinc.model;
 
 import lombok.Data;
 
@@ -14,24 +14,27 @@ public class UserMetadataModel {
     private Date registeredAt;
     private Date paidAt;
     private CheckIn checkIn;
+    private String paymentFile;
+    private String rawWebhook;
 
     @Data
-    static class Vehicle{
+    public static class Vehicle{
         private String plate;
         private String make;
         private String model;
     }
 
     @Data
-    static class People {
+    public static class People {
         private String type;
         private String name;
         private String driversLicense;
         private String phoneNumber;
+        private String cc;
     }
 
     @Data
-    static class CheckIn {
+    public static class CheckIn {
         private Date checkInAt;
         private String byWho;
     }

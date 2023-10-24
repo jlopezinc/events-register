@@ -9,12 +9,20 @@ import jakarta.inject.Inject;
 import jakarta.ws.rs.core.NoContentException;
 import org.jlopezinc.dynamodb.CounterDB;
 import org.jlopezinc.dynamodb.UserModelDB;
+import org.jlopezinc.model.CountersModel;
+import org.jlopezinc.model.UserMetadataModel;
+import org.jlopezinc.model.UserModel;
+import org.jlopezinc.model.WebhookModel;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbAsyncTable;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbEnhancedAsyncClient;
 import software.amazon.awssdk.enhanced.dynamodb.Key;
 import software.amazon.awssdk.enhanced.dynamodb.TableSchema;
+import software.amazon.awssdk.utils.StringUtils;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 
@@ -52,7 +60,8 @@ public class EventV1Service {
                 .all().unis(
                         Uni.createFrom().completionStage(totalKey),
                         Uni.createFrom().completionStage(checkInCarKey),
-                        Uni.createFrom().completionStage(checkInMotorcycleKey)).combinedWith(responses -> {
+                        Uni.createFrom().completionStage(checkInMotorcycleKey))
+                .combinedWith(responses -> {
                             CountersModel countersModel = new CountersModel();
                             CounterDB totalUser = (CounterDB) responses.get(0);
                             CounterDB checkedInCarUser = (CounterDB) responses.get(1);
@@ -67,26 +76,26 @@ public class EventV1Service {
     }
 
     /** Sample with a GSI
-     public Uni<UserModel> getByEventAndEmail(String event, String email) {
-     DynamoDbAsyncIndex<UserModelDB> byEmail = userModelTable.index("byEmail");
+    public Uni<UserModel> getByEventAndEmail2(String event, String email) {
+        DynamoDbAsyncIndex<UserModelDB> byEmail = userModelTable.index("byEmail");
 
-     QueryConditional queryConditional = QueryConditional.keyEqualTo(Key.builder().partitionValue(email).sortValue(event).build());
+        QueryConditional queryConditional = QueryConditional.keyEqualTo(Key.builder().partitionValue(email).sortValue(event).build());
 
-     return Uni.createFrom().completionStage(() -> {
-     CompletableFuture<UserModelDB> userModelDBCompletableFuture = new CompletableFuture<>();
+        return Uni.createFrom().completionStage(() -> {
+            CompletableFuture<UserModelDB> userModelDBCompletableFuture = new CompletableFuture<>();
 
-     byEmail.query(queryConditional).subscribe(rp -> {
-     List<UserModelDB> userModelDBList = new ArrayList<>(rp.items());
-     if (userModelDBList.isEmpty()){
-     userModelDBCompletableFuture.complete(null);
-     } else {
-     userModelDBCompletableFuture.complete(userModelDBList.get(0));
-     }
+            byEmail.query(queryConditional).subscribe(rp -> {
+                List<UserModelDB> userModelDBList = new ArrayList<>(rp.items());
+                if (userModelDBList.isEmpty()){
+                    userModelDBCompletableFuture.complete(null);
+                } else {
+                    userModelDBCompletableFuture.complete(userModelDBList.get(0));
+                }
 
-     });
-     return userModelDBCompletableFuture;
-     }).map(userModelDbTransform);
-     }*/
+            });
+            return userModelDBCompletableFuture;
+        }).map(userModelDbTransform);
+    }*/
 
     public Uni<UserModel> checkInByEventAndEmail(String event, String email, String who){
         return getByEventAndEmail(event, email)
@@ -107,9 +116,8 @@ public class EventV1Service {
                     userModel.setCheckedIn(true);
                     UserModelDB userModelDB = userModelTransform(userModel);
 
-                    incrementOrDecrementCheckInCounter(userModelDB, true);
-
-                    return Uni.createFrom().completionStage(() -> userModelTable.updateItem(userModelDB));
+                    return Uni.createFrom().completionStage(() -> userModelTable.updateItem(userModelDB))
+                            .call(() -> incrementOrDecrementCheckInCounter(userModelDB, true));
                 });
     }
 
@@ -132,28 +140,65 @@ public class EventV1Service {
                     userModel.setCheckedIn(false);
                     UserModelDB userModelDB = userModelTransform(userModel);
 
-                    incrementOrDecrementCheckInCounter(userModelDB, false);
-
-                    return Uni.createFrom().completionStage(() -> userModelTable.updateItem(userModelDB));
+                    return Uni.createFrom().completionStage(() -> userModelTable.updateItem(userModelDB))
+                            .call(() -> incrementOrDecrementCheckInCounter(userModelDB, false));
                 });
     }
 
-    private void incrementOrDecrementCheckInCounter(UserModelDB userModelDB, boolean increment) {
+    private Uni<Void> incrementOrDecrementCheckInCounter(UserModelDB userModelDB, boolean increment) {
         String sortKey = CHECK_IN_COUNTER + userModelDB.getVehicleType();
         Key key = Key.builder().partitionValue(userModelDB.getEventName()).sortValue(sortKey).build();
-        Uni.createFrom().completionStage(() -> counterModelTable.getItem(key)).onItem().call(
+
+        return Uni.createFrom().voidItem().call(() -> Uni.createFrom().completionStage(() -> counterModelTable.getItem(key)).onItem().call(
                 counterDB -> {
                     if (increment){
                         counterDB.setCount(counterDB.getCount() + 1);
                     } else {
                         counterDB.setCount(counterDB.getCount() - 1);
                     }
-                    counterModelTable.updateItem(counterDB);
-                    return Uni.createFrom().nullItem();
+                    return Uni.createFrom().completionStage(() -> {
+                        return counterModelTable.updateItem(counterDB);
+                    });
                 }
-        );
+        ));
     }
 
+    private Uni<Void> incrementOrDecrementTotalCounter(String event, boolean increment) {
+        String sortKey = "total";
+        Key key = Key.builder().partitionValue(event).sortValue(sortKey).build();
+
+        return Uni.createFrom().voidItem().call(() -> Uni.createFrom().completionStage(() -> counterModelTable.getItem(key)).onItem().call(
+                counterDB -> {
+                    if (increment){
+                        counterDB.setCount(counterDB.getCount() + 1);
+                    } else {
+                        counterDB.setCount(counterDB.getCount() - 1);
+                    }
+                    return Uni.createFrom().completionStage(() -> counterModelTable.updateItem(counterDB));
+                }
+        ));
+    }
+
+
+    public Uni<Void> register(String event, String body) {
+        UserModelDB userModelDB;
+        try {
+            userModelDB = transformWebHook(event, body, this.objectMapper);
+        } catch (JsonProcessingException e) {
+            throw  new RuntimeException(e);
+        }
+        return Uni.createFrom().voidItem().call(() -> getByEventAndEmail(event, userModelDB.getUserEmail())
+                .onItem().call((userModel) -> {
+                            if (userModel == null){
+                                // create a new one incrementing the total
+                                return Uni.createFrom().completionStage(() -> userModelTable.putItem(userModelDB)).onItem()
+                                        .call(() -> incrementOrDecrementTotalCounter(event, true));
+                            } else {
+                                return Uni.createFrom().completionStage(() -> userModelTable.putItem(userModelDB));
+                            }
+                        }
+                ));
+    }
 
     final Function<UserModelDB, UserModel> userModelDbTransform = new Function<>() {
         @Override
@@ -176,21 +221,100 @@ public class EventV1Service {
         }
     };
 
-    final UserModelDB userModelTransform (UserModel userModel){
-        return new UserModelDB() {{
-            setEventName(userModel.getEventName());
-            setPaid(userModel.isPaid());
-            setUserEmail(userModel.getUserEmail());
-            setVehicleType(userModel.getVehicleType());
-            setCheckedIn(userModel.isCheckedIn());
-            try {
-                setMetadata(objectMapper.writeValueAsString(userModel.getMetadata()));
-            } catch (JsonProcessingException e) {
-                throw new RuntimeException(e);
-            }
-        }};
+    UserModelDB transformWebHook(String event, String rawWebhook, ObjectMapper objectMapper) throws JsonProcessingException {
+        WebhookModel webhookModel = objectMapper.readValue(rawWebhook, WebhookModel.class);
+        String vehicleType;
+        switch (webhookModel.getVehicleType()){
+            case "Mota":
+                vehicleType = "motorcycle";
+                break;
+            case "Quad":
+                vehicleType = "quad";
+                break;
+            case "Carro":
+            default:
+                vehicleType = "car";
+        }
 
+        UserMetadataModel userMetadataModel = new UserMetadataModel();
+        userMetadataModel.setPhoneNumber(webhookModel.getPhoneNumber());
+        userMetadataModel.setRegisteredAt(webhookModel.getSubmittedAt());
+        userMetadataModel.setPeople(transformPeople(webhookModel));
+        userMetadataModel.setVehicle(transformVehicle(webhookModel));
+        userMetadataModel.setPaymentFile(webhookModel.getPayment());
+        userMetadataModel.setCheckIn(new UserMetadataModel.CheckIn());
+        userMetadataModel.setRawWebhook(rawWebhook);
+
+        return UserModelDB.builder()
+                .eventName(event)
+                .userEmail(webhookModel.getEmail())
+                .paid(false)
+                .checkedIn(false)
+                .metadata(objectMapper.writeValueAsString(userMetadataModel))
+                .vehicleType(vehicleType)
+                .build();
     }
+
+    private UserMetadataModel.Vehicle transformVehicle(WebhookModel webhookModel) {
+        return new UserMetadataModel.Vehicle(){{
+            setPlate(webhookModel.getVehiclePlate());
+            setMake(webhookModel.getVehicleBrand());
+        }};
+    }
+
+    private List<UserMetadataModel.People> transformPeople(WebhookModel webhookModel) {
+        String splitBy =  "<BR/>|\n|,";
+        List<UserMetadataModel.People> peopleList = new ArrayList<>(webhookModel.getGuestsNumber() + 1);
+        peopleList.add(new UserMetadataModel.People(){{
+            setName(webhookModel.getDriverName());
+            setType("driver");
+            setPhoneNumber(webhookModel.getPhoneNumber());
+            setCc(webhookModel.getDriverCc());
+        }});
+
+        if (StringUtils.isNotBlank(webhookModel.getGuestsNames())){
+            List<String> names = Arrays.asList(webhookModel.getGuestsNames().trim().split(splitBy));
+            List<String> ccs = null;
+            if (webhookModel.getGuestsCc() != null){
+                ccs = Arrays.asList(webhookModel.getGuestsCc().trim().split(splitBy));
+            }
+
+            for (int i = 0; i < names.size(); i++){
+                final String cc;
+                if (ccs != null && ccs.size() >= i){
+                    cc = ccs.get(i);
+                } else {
+                    cc = null;
+                }
+                String name = names.get(i);
+                peopleList.add(new UserMetadataModel.People(){{
+                    setName(name);
+                    setCc(cc);
+                    setType("guest");
+                }});
+            }
+        }
+        return peopleList;
+    }
+
+    final UserModelDB userModelTransform (UserModel userModel){
+        String metadata;
+        try {
+            metadata = objectMapper.writeValueAsString(userModel.getMetadata());
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
+        }
+        return UserModelDB.builder()
+                .userEmail(userModel.getUserEmail())
+                .eventName(userModel.getEventName())
+                .paid(userModel.isPaid())
+                .checkedIn(userModel.isCheckedIn())
+                .vehicleType(userModel.getVehicleType())
+                .metadata(metadata).build();
+    }
+
+
+
 
 
 }
