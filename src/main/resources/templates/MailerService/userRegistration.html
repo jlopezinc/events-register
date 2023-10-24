@@ -1,0 +1,27 @@
+<div>
+    Olá {userModel.getMetadata().getPeople().get(0).getName()},
+
+    <div><br/></div>
+    <div>
+        Obrigado! Estás inscrito no XI TT Amigos do Natal.</p>
+    </div>
+    <br/>
+    <div>
+        Leva este QR Code para um check-in mais rápido no dia do evento. Imprime ou leva no teu telemóvel.
+    </div>
+    <div><br/></div>
+    <div>
+        <img src="https://api.qrserver.com/v1/create-qr-code/?data={userModel.getUserEmail()}&amp;size=200x200" alt="" title="" />
+    </div>
+
+    <div><br/></div>
+    <div>
+        Em qualquer dúvida, por favor contacta-nos através de
+        <a href="mailto:ttamigosdonatal@gmail.com" target="_blank">ttamigosdonatal@gmail.com</a>.
+    </div>
+
+    <div><br/></div>
+    <div>
+        A equipa do TT Amigos do Natal
+    </div>
+    </html>

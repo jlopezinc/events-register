@@ -39,6 +39,9 @@ public class EventV1Service {
     ObjectMapper objectMapper;
 
     @Inject
+    MailerService mailerService;
+
+    @Inject
     EventV1Service (DynamoDbEnhancedAsyncClient dynamoDbEnhancedAsyncClient){
         userModelTable = dynamoDbEnhancedAsyncClient.table(EVENTS_TABLE, TableSchema.fromClass(UserModelDB.class));
         counterModelTable = dynamoDbEnhancedAsyncClient.table(EVENTS_TABLE, TableSchema.fromClass(CounterDB.class));
@@ -191,15 +194,17 @@ public class EventV1Service {
                 .onItem().call((userModel) -> {
                             if (userModel == null){
                                 // create a new one incrementing the total
+                                // and send an email
                                 return Uni.createFrom().completionStage(() -> userModelTable.putItem(userModelDB)).onItem()
-                                        .call(() -> incrementOrDecrementTotalCounter(event, true));
+                                        .call(() -> incrementOrDecrementTotalCounter(event, true))
+                                        .call(() -> mailerService.sendRegistrationEmail(userModelDbTransform.apply(userModelDB)));
                             } else {
-                                return Uni.createFrom().completionStage(() -> userModelTable.putItem(userModelDB));
+                                return Uni.createFrom().completionStage(() -> userModelTable.putItem(userModelDB))
+                                        .call(() -> mailerService.sendRegistrationEmail(userModelDbTransform.apply(userModelDB)));
                             }
                         }
                 ));
     }
-
     final Function<UserModelDB, UserModel> userModelDbTransform = new Function<>() {
         @Override
         public UserModel apply(UserModelDB userModelDB) {

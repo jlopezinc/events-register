@@ -28,6 +28,7 @@ import org.jlopezinc.model.UserModel;
 public class V1Resource {
 
     private static final Logger LOG = Logger.getLogger(V1Resource.class);
+    private static final String HARD_KEY = "7KVjU7bQmy";
 
     @Inject
     SecurityIdentity securityIdentity;
@@ -64,7 +65,7 @@ public class V1Resource {
     @Produces(MediaType.APPLICATION_JSON)
     @PermitAll
     public Uni<Void> register(@PathParam("event") String event, @HeaderParam("x-api-key") String key, String body) {
-        if (!"7KVjU7bQmy".equals(key)){
+        if (!HARD_KEY.equals(key)){
             throw new UnauthorizedException();
         }
         return eventV1Service.register(event, body);
