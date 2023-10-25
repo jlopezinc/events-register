@@ -20,6 +20,7 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import org.jboss.logging.Logger;
 import org.jlopezinc.model.CountersModel;
+import org.jlopezinc.model.PaymentInfo;
 import org.jlopezinc.model.UserModel;
 
 @Path("/v1")
@@ -69,6 +70,19 @@ public class V1Resource {
             throw new UnauthorizedException();
         }
         return eventV1Service.register(event, body);
+    }
+
+
+    @POST
+    @Path("/{event}/{email}/payment")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    @PermitAll
+    public Uni<Void> updatePayInfo(@PathParam("event") String event, @HeaderParam("x-api-key") String key, @PathParam("email") String email, PaymentInfo body){
+        if (!HARD_KEY.equals(key)){
+            throw new UnauthorizedException();
+        }
+        return eventV1Service.updatePaymentInfo(event, email, body);
     }
 
     @DELETE

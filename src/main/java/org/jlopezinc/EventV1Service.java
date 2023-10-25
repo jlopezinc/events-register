@@ -10,6 +10,7 @@ import jakarta.ws.rs.core.NoContentException;
 import org.jlopezinc.dynamodb.CounterDB;
 import org.jlopezinc.dynamodb.UserModelDB;
 import org.jlopezinc.model.CountersModel;
+import org.jlopezinc.model.PaymentInfo;
 import org.jlopezinc.model.UserMetadataModel;
 import org.jlopezinc.model.UserModel;
 import org.jlopezinc.model.WebhookModel;
@@ -31,6 +32,7 @@ public class EventV1Service {
 
     private static final String EVENTS_TABLE = "eventsRegister";
     static final String CHECK_IN_COUNTER = "checkInCounter";
+    static final String PAID_COUNTER = "paidCounter";
 
     private DynamoDbAsyncTable<UserModelDB> userModelTable;
     private DynamoDbAsyncTable<CounterDB> counterModelTable;
@@ -58,21 +60,25 @@ public class EventV1Service {
         CompletableFuture<CounterDB> totalKey = counterModelTable.getItem(Key.builder().partitionValue(event).sortValue("total").build());
         CompletableFuture<CounterDB> checkInCarKey = counterModelTable.getItem(Key.builder().partitionValue(event).sortValue(CHECK_IN_COUNTER + "car").build());
         CompletableFuture<CounterDB> checkInMotorcycleKey = counterModelTable.getItem(Key.builder().partitionValue(event).sortValue(CHECK_IN_COUNTER + "motorcycle").build());
+        CompletableFuture<CounterDB> paidCounterKey = counterModelTable.getItem(Key.builder().partitionValue(event).sortValue(PAID_COUNTER).build());
 
         return Uni.combine()
                 .all().unis(
                         Uni.createFrom().completionStage(totalKey),
                         Uni.createFrom().completionStage(checkInCarKey),
-                        Uni.createFrom().completionStage(checkInMotorcycleKey))
+                        Uni.createFrom().completionStage(checkInMotorcycleKey),
+                        Uni.createFrom().completionStage(paidCounterKey))
                 .combinedWith(responses -> {
                             CountersModel countersModel = new CountersModel();
                             CounterDB totalUser = (CounterDB) responses.get(0);
                             CounterDB checkedInCarUser = (CounterDB) responses.get(1);
                             CounterDB checkedInMotorbikeUser = (CounterDB) responses.get(2);
+                            CounterDB paidUser = (CounterDB) responses.get(3);
 
                             countersModel.setTotal(totalUser != null ? totalUser.getCount() : 0);
                             countersModel.setCheckedInCar(checkedInCarUser != null ? checkedInCarUser.getCount() : 0);
                             countersModel.setCheckedInMotorcycle(checkedInMotorbikeUser != null ? checkedInMotorbikeUser.getCount() : 0);
+                            countersModel.setPaid(paidUser != null ? paidUser.getCount() : 0);
                             return countersModel;
                         }
                 );
@@ -147,42 +153,6 @@ public class EventV1Service {
                             .call(() -> incrementOrDecrementCheckInCounter(userModelDB, false));
                 });
     }
-
-    private Uni<Void> incrementOrDecrementCheckInCounter(UserModelDB userModelDB, boolean increment) {
-        String sortKey = CHECK_IN_COUNTER + userModelDB.getVehicleType();
-        Key key = Key.builder().partitionValue(userModelDB.getEventName()).sortValue(sortKey).build();
-
-        return Uni.createFrom().voidItem().call(() -> Uni.createFrom().completionStage(() -> counterModelTable.getItem(key)).onItem().call(
-                counterDB -> {
-                    if (increment){
-                        counterDB.setCount(counterDB.getCount() + 1);
-                    } else {
-                        counterDB.setCount(counterDB.getCount() - 1);
-                    }
-                    return Uni.createFrom().completionStage(() -> {
-                        return counterModelTable.updateItem(counterDB);
-                    });
-                }
-        ));
-    }
-
-    private Uni<Void> incrementOrDecrementTotalCounter(String event, boolean increment) {
-        String sortKey = "total";
-        Key key = Key.builder().partitionValue(event).sortValue(sortKey).build();
-
-        return Uni.createFrom().voidItem().call(() -> Uni.createFrom().completionStage(() -> counterModelTable.getItem(key)).onItem().call(
-                counterDB -> {
-                    if (increment){
-                        counterDB.setCount(counterDB.getCount() + 1);
-                    } else {
-                        counterDB.setCount(counterDB.getCount() - 1);
-                    }
-                    return Uni.createFrom().completionStage(() -> counterModelTable.updateItem(counterDB));
-                }
-        ));
-    }
-
-
     public Uni<Void> register(String event, String body) {
         UserModelDB userModelDB;
         try {
@@ -192,19 +162,82 @@ public class EventV1Service {
         }
         return Uni.createFrom().voidItem().call(() -> getByEventAndEmail(event, userModelDB.getUserEmail())
                 .onItem().call((userModel) -> {
-                            if (userModel == null){
-                                // create a new one incrementing the total
-                                // and send an email
-                                return Uni.createFrom().completionStage(() -> userModelTable.putItem(userModelDB)).onItem()
-                                        .call(() -> incrementOrDecrementTotalCounter(event, true))
-                                        .call(() -> mailerService.sendRegistrationEmail(userModelDbTransform.apply(userModelDB)));
-                            } else {
-                                return Uni.createFrom().completionStage(() -> userModelTable.putItem(userModelDB))
-                                        .call(() -> mailerService.sendRegistrationEmail(userModelDbTransform.apply(userModelDB)));
-                            }
+                            // and send an email
+                            return Uni.createFrom().completionStage(() -> userModelTable.putItem(userModelDB)).onItem()
+                                    .call(() -> incrementOrDecrementTotalCounter(event, true))
+                                    .call(() -> mailerService.sendRegistrationEmail(userModelDbTransform.apply(userModelDB)));
                         }
                 ));
     }
+    public Uni<Void> updatePaymentInfo(String event, String email, PaymentInfo paymentInfo) {
+        return  Uni.createFrom().voidItem().call(() -> getByEventAndEmail(event, email)
+                .call(userModel -> {
+                    if (userModel == null) {
+                        return Uni.createFrom().failure(new NoContentException("Not Found"));
+                    }
+                    final boolean alreadyPaid = userModel.isPaid();
+
+                    userModel.setPaid(true);
+                    PaymentInfo storedPaymentInfo = userModel.getMetadata().getPaymentInfo();
+                    if (storedPaymentInfo == null){
+                        storedPaymentInfo = new PaymentInfo();
+                    }
+                    storedPaymentInfo.setConfirmedAt(new Date());
+                    storedPaymentInfo.setByWho(paymentInfo.getByWho());
+                    storedPaymentInfo.setAmount(paymentInfo.getAmount());
+                    if (StringUtils.isNotBlank(paymentInfo.getPaymentFile())) {
+                        storedPaymentInfo.setPaymentFile(paymentInfo.getPaymentFile());
+                    }
+                    userModel.getMetadata().setPaymentInfo(storedPaymentInfo);
+
+                    return Uni.createFrom().completionStage(() -> userModelTable.putItem(userModelTransform(userModel)))
+                            .call(() -> {
+                                if (!alreadyPaid){
+                                    return incrementOrDecrementPaidCounter(event, true);
+                                }
+                                return Uni.createFrom().voidItem();
+                            });
+                }));
+    }
+
+    private Uni<Void> incrementOrDecrementCounter(String event, String sortKey, boolean increment){
+        Key key = Key.builder().partitionValue(event).sortValue(sortKey).build();
+
+        return Uni.createFrom().voidItem().call(() -> Uni.createFrom().completionStage(() -> counterModelTable.getItem(key)).onItem().call(
+                counterDB -> {
+                    if (counterDB == null){
+                        final CounterDB newCounter = new CounterDB();
+                        newCounter.setCount(0);
+                        newCounter.setEventName(event);
+                        newCounter.setUserEmail(sortKey);
+                        if (increment) {
+                            newCounter.setCount(newCounter.getCount() + 1);
+                        }
+                        return Uni.createFrom().completionStage(() -> counterModelTable.putItem(newCounter));
+                    }
+                    if (increment) {
+                        counterDB.setCount(counterDB.getCount() + 1);
+                    } else {
+                        counterDB.setCount(Math.max(counterDB.getCount() - 1, 0));
+                    }
+                    return Uni.createFrom().completionStage(() -> counterModelTable.updateItem(counterDB));
+                }
+        ));
+    }
+
+    private Uni<Void> incrementOrDecrementCheckInCounter(UserModelDB userModelDB, boolean increment) {
+        String sortKey = CHECK_IN_COUNTER + userModelDB.getVehicleType();
+        return incrementOrDecrementCounter(userModelDB.getEventName(), sortKey, increment);
+    }
+
+    private Uni<Void> incrementOrDecrementTotalCounter(String event, boolean increment) {
+        String sortKey = "total";
+        return incrementOrDecrementCounter(event, sortKey, increment);
+    }
+    private Uni<Void> incrementOrDecrementPaidCounter(String event, boolean increment) {
+        return incrementOrDecrementCounter(event, PAID_COUNTER, increment);
+    }
+
     final Function<UserModelDB, UserModel> userModelDbTransform = new Function<>() {
         @Override
         public UserModel apply(UserModelDB userModelDB) {
@@ -236,7 +269,7 @@ public class EventV1Service {
             case "Quad":
                 vehicleType = "quad";
                 break;
-            case "Carro":
+            case "Jipe":
             default:
                 vehicleType = "car";
         }
@@ -246,7 +279,9 @@ public class EventV1Service {
         userMetadataModel.setRegisteredAt(webhookModel.getSubmittedAt());
         userMetadataModel.setPeople(transformPeople(webhookModel));
         userMetadataModel.setVehicle(transformVehicle(webhookModel));
-        userMetadataModel.setPaymentFile(webhookModel.getPayment());
+        userMetadataModel.setPaymentInfo(new PaymentInfo(){{
+            setPaymentFile(webhookModel.getPayment());
+        }});
         userMetadataModel.setCheckIn(new UserMetadataModel.CheckIn());
         userMetadataModel.setRawWebhook(rawWebhook);
 
@@ -317,9 +352,5 @@ public class EventV1Service {
                 .vehicleType(userModel.getVehicleType())
                 .metadata(metadata).build();
     }
-
-
-
-
 
 }

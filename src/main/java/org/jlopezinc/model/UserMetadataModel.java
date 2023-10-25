@@ -12,10 +12,9 @@ public class UserMetadataModel {
     private List<People> people;
     private String phoneNumber;
     private Date registeredAt;
-    private Date paidAt;
     private CheckIn checkIn;
-    private String paymentFile;
     private String rawWebhook;
+    private PaymentInfo paymentInfo;
 
     @Data
     public static class Vehicle{

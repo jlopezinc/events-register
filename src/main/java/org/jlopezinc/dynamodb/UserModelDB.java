@@ -19,7 +19,7 @@ public class UserModelDB extends EventsRegisterDb {
     }
 
     @DynamoDbAttribute("paid")
-    public Boolean isPaid() {
+    public boolean isPaid() {
         return paid;
     }
 
