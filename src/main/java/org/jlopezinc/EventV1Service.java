@@ -158,7 +158,7 @@ public class EventV1Service {
         try {
             userModelDB = transformWebHook(event, body, this.objectMapper);
         } catch (JsonProcessingException e) {
-            throw  new RuntimeException(e);
+            throw new RuntimeException(e);
         }
         return Uni.createFrom().voidItem().call(() -> getByEventAndEmail(event, userModelDB.getUserEmail())
                 .onItem().call((userModel) -> {
@@ -321,7 +321,7 @@ public class EventV1Service {
 
             for (int i = 0; i < names.size(); i++){
                 final String cc;
-                if (ccs != null && ccs.size() >= i){
+                if (ccs != null && ccs.size() > i){
                     cc = ccs.get(i);
                 } else {
                     cc = null;
