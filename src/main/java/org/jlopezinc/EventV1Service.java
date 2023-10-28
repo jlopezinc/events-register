@@ -58,27 +58,55 @@ public class EventV1Service {
 
     public Uni<CountersModel> getCountersByEvent(String event) {
         CompletableFuture<CounterDB> totalKey = counterModelTable.getItem(Key.builder().partitionValue(event).sortValue("total").build());
+        CompletableFuture<CounterDB> totalCarKey = counterModelTable.getItem(Key.builder().partitionValue(event).sortValue("totalcar").build());
+        CompletableFuture<CounterDB> totalMotorCycleKey = counterModelTable.getItem(Key.builder().partitionValue(event).sortValue("totalmotorcycle").build());
+        CompletableFuture<CounterDB> totalQuadKey = counterModelTable.getItem(Key.builder().partitionValue(event).sortValue("totalquad").build());
         CompletableFuture<CounterDB> checkInCarKey = counterModelTable.getItem(Key.builder().partitionValue(event).sortValue(CHECK_IN_COUNTER + "car").build());
         CompletableFuture<CounterDB> checkInMotorcycleKey = counterModelTable.getItem(Key.builder().partitionValue(event).sortValue(CHECK_IN_COUNTER + "motorcycle").build());
+        CompletableFuture<CounterDB> checkInQuadKey = counterModelTable.getItem(Key.builder().partitionValue(event).sortValue(CHECK_IN_COUNTER + "quad").build());
         CompletableFuture<CounterDB> paidCounterKey = counterModelTable.getItem(Key.builder().partitionValue(event).sortValue(PAID_COUNTER).build());
+        CompletableFuture<CounterDB> paidCarKey = counterModelTable.getItem(Key.builder().partitionValue(event).sortValue(PAID_COUNTER + "car").build());
+        CompletableFuture<CounterDB> paidMotorcycleKey = counterModelTable.getItem(Key.builder().partitionValue(event).sortValue(PAID_COUNTER + "motorcycle").build());
+        CompletableFuture<CounterDB> paidQuadKey = counterModelTable.getItem(Key.builder().partitionValue(event).sortValue(PAID_COUNTER + "quad").build());
 
         return Uni.combine()
                 .all().unis(
                         Uni.createFrom().completionStage(totalKey),
+                        Uni.createFrom().completionStage(totalCarKey),
+                        Uni.createFrom().completionStage(totalMotorCycleKey),
+                        Uni.createFrom().completionStage(totalQuadKey),
                         Uni.createFrom().completionStage(checkInCarKey),
                         Uni.createFrom().completionStage(checkInMotorcycleKey),
-                        Uni.createFrom().completionStage(paidCounterKey))
+                        Uni.createFrom().completionStage(checkInQuadKey),
+                        Uni.createFrom().completionStage(paidCounterKey),
+                        Uni.createFrom().completionStage(paidCarKey),
+                        Uni.createFrom().completionStage(paidMotorcycleKey),
+                        Uni.createFrom().completionStage(paidQuadKey))
                 .combinedWith(responses -> {
                             CountersModel countersModel = new CountersModel();
                             CounterDB totalUser = (CounterDB) responses.get(0);
-                            CounterDB checkedInCarUser = (CounterDB) responses.get(1);
-                            CounterDB checkedInMotorbikeUser = (CounterDB) responses.get(2);
-                            CounterDB paidUser = (CounterDB) responses.get(3);
+                            CounterDB totalCar = (CounterDB) responses.get(1);
+                            CounterDB totalMotorCycle = (CounterDB) responses.get(2);
+                            CounterDB totalQuad = (CounterDB) responses.get(3);
+                            CounterDB checkedInCarUser = (CounterDB) responses.get(4);
+                            CounterDB checkedInMotorbikeUser = (CounterDB) responses.get(5);
+                            CounterDB checkedInQuadUser = (CounterDB) responses.get(6);
+                            CounterDB paidUser = (CounterDB) responses.get(7);
+                            CounterDB paidCar = (CounterDB) responses.get(8);
+                            CounterDB paidMotorbike = (CounterDB) responses.get(9);
+                            CounterDB paidQuad = (CounterDB) responses.get(10);
 
                             countersModel.setTotal(totalUser != null ? totalUser.getCount() : 0);
+                            countersModel.setTotalCar(totalCar != null ? totalCar.getCount() : 0);
+                            countersModel.setTotalMotorcycle(totalMotorCycle != null ? totalMotorCycle.getCount() : 0);
+                            countersModel.setTotalQuad(totalQuad != null ? totalQuad.getCount() : 0);
                             countersModel.setCheckedInCar(checkedInCarUser != null ? checkedInCarUser.getCount() : 0);
                             countersModel.setCheckedInMotorcycle(checkedInMotorbikeUser != null ? checkedInMotorbikeUser.getCount() : 0);
+                            countersModel.setCheckedInQuad(checkedInQuadUser != null ? checkedInQuadUser.getCount() : 0);
                             countersModel.setPaid(paidUser != null ? paidUser.getCount() : 0);
+                            countersModel.setPaidCar(paidCar != null ? paidCar.getCount() : 0);
+                            countersModel.setPaidMotorcycle(paidMotorbike != null ? paidMotorbike.getCount() : 0);
+                            countersModel.setPaidQuad(paidQuad != null ? paidQuad.getCount() : 0);
                             return countersModel;
                         }
                 );
@@ -164,7 +192,7 @@ public class EventV1Service {
                 .onItem().call((userModel) -> {
                             // and send an email
                             return Uni.createFrom().completionStage(() -> userModelTable.putItem(userModelDB)).onItem()
-                                    .call(() -> incrementOrDecrementTotalCounter(event, true))
+                                    .call(() -> incrementOrDecrementTotalCounter(userModelDB, true))
                                     .call(() -> mailerService.sendRegistrationEmail(userModelDbTransform.apply(userModelDB)));
                         }
                 ));
@@ -193,7 +221,7 @@ public class EventV1Service {
                     return Uni.createFrom().completionStage(() -> userModelTable.putItem(userModelTransform(userModel)))
                             .call(() -> {
                                 if (!alreadyPaid){
-                                    return incrementOrDecrementPaidCounter(event, true);
+                                    return incrementOrDecrementPaidCounter(userModelTransform(userModel), true);
                                 }
                                 return Uni.createFrom().voidItem();
                             });
@@ -230,12 +258,19 @@ public class EventV1Service {
         return incrementOrDecrementCounter(userModelDB.getEventName(), sortKey, increment);
     }
 
-    private Uni<Void> incrementOrDecrementTotalCounter(String event, boolean increment) {
+    private Uni<Void> incrementOrDecrementTotalCounter(UserModelDB userModelDB, boolean increment) {
         String sortKey = "total";
-        return incrementOrDecrementCounter(event, sortKey, increment);
+        String countByType = "total" + userModelDB.getVehicleType();
+        return Uni.combine()
+                .all().unis(incrementOrDecrementCounter(userModelDB.getEventName(), sortKey, increment),
+                        incrementOrDecrementCounter(userModelDB.getEventName(), countByType, increment))
+                .combinedWith((unused, unused2) -> null);
     }
-    private Uni<Void> incrementOrDecrementPaidCounter(String event, boolean increment) {
-        return incrementOrDecrementCounter(event, PAID_COUNTER, increment);
+    private Uni<Void> incrementOrDecrementPaidCounter(UserModelDB userModelDB, boolean increment) {
+        return Uni.combine()
+                .all().unis(incrementOrDecrementCounter(userModelDB.getEventName(), PAID_COUNTER, increment),
+                        incrementOrDecrementCounter(userModelDB.getEventName(), PAID_COUNTER + userModelDB.getVehicleType(), increment))
+                .combinedWith((unused, unused2) -> null);
     }
 
     final Function<UserModelDB, UserModel> userModelDbTransform = new Function<>() {
