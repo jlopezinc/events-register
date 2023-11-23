@@ -34,6 +34,8 @@ public class EventV1Service {
     static final String CHECK_IN_COUNTER = "checkInCounter";
     static final String PAID_COUNTER = "paidCounter";
 
+    static final String TOTAL_PARTICIPANTS_COUNTER = "totalParticipants";
+
     private DynamoDbAsyncTable<UserModelDB> userModelTable;
     private DynamoDbAsyncTable<CounterDB> counterModelTable;
 
@@ -68,6 +70,7 @@ public class EventV1Service {
         CompletableFuture<CounterDB> paidCarKey = counterModelTable.getItem(Key.builder().partitionValue(event).sortValue(PAID_COUNTER + "car").build());
         CompletableFuture<CounterDB> paidMotorcycleKey = counterModelTable.getItem(Key.builder().partitionValue(event).sortValue(PAID_COUNTER + "motorcycle").build());
         CompletableFuture<CounterDB> paidQuadKey = counterModelTable.getItem(Key.builder().partitionValue(event).sortValue(PAID_COUNTER + "quad").build());
+        CompletableFuture<CounterDB> totalParticipantsKey = counterModelTable.getItem(Key.builder().partitionValue(event).sortValue(TOTAL_PARTICIPANTS_COUNTER).build());
 
         return Uni.combine()
                 .all().unis(
@@ -81,7 +84,8 @@ public class EventV1Service {
                         Uni.createFrom().completionStage(paidCounterKey),
                         Uni.createFrom().completionStage(paidCarKey),
                         Uni.createFrom().completionStage(paidMotorcycleKey),
-                        Uni.createFrom().completionStage(paidQuadKey))
+                        Uni.createFrom().completionStage(paidQuadKey),
+                        Uni.createFrom().completionStage(totalParticipantsKey))
                 .combinedWith(responses -> {
                             CountersModel countersModel = new CountersModel();
                             CounterDB totalUser = (CounterDB) responses.get(0);
@@ -95,6 +99,7 @@ public class EventV1Service {
                             CounterDB paidCar = (CounterDB) responses.get(8);
                             CounterDB paidMotorbike = (CounterDB) responses.get(9);
                             CounterDB paidQuad = (CounterDB) responses.get(10);
+                            CounterDB totalParticipants = (CounterDB) responses.get(11);
 
                             countersModel.setTotal(totalUser != null ? totalUser.getCount() : 0);
                             countersModel.setTotalCar(totalCar != null ? totalCar.getCount() : 0);
@@ -107,6 +112,7 @@ public class EventV1Service {
                             countersModel.setPaidCar(paidCar != null ? paidCar.getCount() : 0);
                             countersModel.setPaidMotorcycle(paidMotorbike != null ? paidMotorbike.getCount() : 0);
                             countersModel.setPaidQuad(paidQuad != null ? paidQuad.getCount() : 0);
+                            countersModel.setTotalParticipants(totalParticipants != null ? totalParticipants.getCount() : 0);
                             return countersModel;
                         }
                 );
@@ -229,6 +235,9 @@ public class EventV1Service {
     }
 
     private Uni<Void> incrementOrDecrementCounter(String event, String sortKey, boolean increment){
+        return incrementOrDecrementCounter(event, sortKey, increment, 1);
+    }
+    private Uni<Void> incrementOrDecrementCounter(String event, String sortKey, boolean increment, int by){
         Key key = Key.builder().partitionValue(event).sortValue(sortKey).build();
 
         return Uni.createFrom().voidItem().call(() -> Uni.createFrom().completionStage(() -> counterModelTable.getItem(key)).onItem().call(
@@ -239,14 +248,14 @@ public class EventV1Service {
                         newCounter.setEventName(event);
                         newCounter.setUserEmail(sortKey);
                         if (increment) {
-                            newCounter.setCount(newCounter.getCount() + 1);
+                            newCounter.setCount(newCounter.getCount() + by);
                         }
                         return Uni.createFrom().completionStage(() -> counterModelTable.putItem(newCounter));
                     }
                     if (increment) {
-                        counterDB.setCount(counterDB.getCount() + 1);
+                        counterDB.setCount(counterDB.getCount() + by);
                     } else {
-                        counterDB.setCount(Math.max(counterDB.getCount() - 1, 0));
+                        counterDB.setCount(Math.max(counterDB.getCount() - by, 0));
                     }
                     return Uni.createFrom().completionStage(() -> counterModelTable.updateItem(counterDB));
                 }
@@ -261,10 +270,18 @@ public class EventV1Service {
     private Uni<Void> incrementOrDecrementTotalCounter(UserModelDB userModelDB, boolean increment) {
         String sortKey = "total";
         String countByType = "total" + userModelDB.getVehicleType();
+        UserMetadataModel userMetadataModel;
+        try {
+            userMetadataModel = objectMapper.readValue(userModelDB.getMetadata(), UserMetadataModel.class);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
+        }
+
         return Uni.combine()
                 .all().unis(incrementOrDecrementCounter(userModelDB.getEventName(), sortKey, increment),
-                        incrementOrDecrementCounter(userModelDB.getEventName(), countByType, increment))
-                .combinedWith((unused, unused2) -> null);
+                        incrementOrDecrementCounter(userModelDB.getEventName(), countByType, increment),
+                        incrementOrDecrementCounter(userModelDB.getEventName(), TOTAL_PARTICIPANTS_COUNTER, increment, userMetadataModel.getPeople().size()))
+                .combinedWith((unused, unused2, unused3) -> null);
     }
     private Uni<Void> incrementOrDecrementPaidCounter(UserModelDB userModelDB, boolean increment) {
         return Uni.combine()

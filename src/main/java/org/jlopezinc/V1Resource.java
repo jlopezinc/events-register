@@ -1,6 +1,5 @@
 package org.jlopezinc;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import io.quarkus.security.Authenticated;
 import io.quarkus.security.UnauthorizedException;
 import io.quarkus.security.identity.SecurityIdentity;
@@ -18,7 +17,6 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
-import org.jboss.logging.Logger;
 import org.jlopezinc.model.CountersModel;
 import org.jlopezinc.model.PaymentInfo;
 import org.jlopezinc.model.UserModel;
@@ -27,8 +25,6 @@ import org.jlopezinc.model.UserModel;
 @ApplicationScoped
 @Authenticated
 public class V1Resource {
-
-    private static final Logger LOG = Logger.getLogger(V1Resource.class);
     private static final String HARD_KEY = "7KVjU7bQmy";
 
     @Inject
@@ -58,6 +54,18 @@ public class V1Resource {
     public Uni<UserModel> checkInToken(@PathParam("event") String event, @PathParam("email") String email){
         String cognitoUser = getCognitoUser();
         return  eventV1Service.checkInByEventAndEmail(event, email, cognitoUser);
+    }
+
+    @PUT
+    @Path("/{event}/{email}/b2b")
+    @Produces(MediaType.APPLICATION_JSON)
+    @PermitAll
+    public Uni<UserModel> checkInTokenB2B(@PathParam("event") String event, @PathParam("email") String email,
+                                          @HeaderParam("x-api-key") String key, @HeaderParam("byWho") String byWho){
+        if (!HARD_KEY.equals(key)){
+            throw new UnauthorizedException();
+        }
+        return  eventV1Service.checkInByEventAndEmail(event, email, byWho);
     }
 
     @POST

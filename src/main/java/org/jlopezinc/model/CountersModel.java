@@ -8,6 +8,7 @@ public class CountersModel {
     private long totalCar;
     private long totalMotorcycle;
     private long totalQuad;
+    private long totalParticipants;
     private long checkedInCar;
     private long checkedInMotorcycle;
     private long checkedInQuad;
