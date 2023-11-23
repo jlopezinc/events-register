@@ -55,13 +55,13 @@ curl -X POST 'http://localhost:8080/v1/ttamigosnatal2023/webhook' \
 mvn install -Dnative -DskipTests -Dquarkus.native.container-build=true
 ```
 
-## testing locally
+## Testing locally
 ```shell
 sam local start-api --template target/sam.native.yaml
 ```
 
-## deploying to AWS
-Choose your profile, if you need to, and run:
+## Deploying to AWS
+Choose your profile (`aws configure sso`), if you need to, and run:
 ```shell
 sam deploy -t sam.native.yaml --profile <your_profile>
 ```
