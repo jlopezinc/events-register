@@ -383,6 +383,7 @@ public class EventV1Service {
                     setName(name);
                     setCc(cc);
                     setType("guest");
+                    // other possible types like "guestFree" or "guestHalf"
                 }});
             }
         }
