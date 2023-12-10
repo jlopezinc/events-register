@@ -48,6 +48,12 @@ curl -X POST 'http://localhost:8080/v1/ttamigosnatal2023/webhook' \
 }'
 ```
 
+## Send a specific email for a registered user
+```shell
+curl -X POST 'http://localhost:8080/v1/ttamigosnatal2023/jlopez.inc@gmail.com/sendEmail/almostThere' -H 'x-api-key:7KVjU7bQmy'
+
+```
+
 # building and deploying (native)
 
 ## build native

@@ -6,6 +6,7 @@ import io.quarkus.logging.Log;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.core.NoContentException;
 import org.jlopezinc.dynamodb.CounterDB;
 import org.jlopezinc.dynamodb.UserModelDB;
@@ -406,4 +407,17 @@ public class EventV1Service {
                 .metadata(metadata).build();
     }
 
+    public Uni<Void> sendEmailTemplate(String event, String email, String emailTemplate) {
+        return switch (emailTemplate) {
+            case "userRegistration" -> Uni.createFrom().voidItem().call(() -> getByEventAndEmail(event, email)
+                    .onItem().call((userModel) ->
+                            mailerService.sendRegistrationEmail(userModel)
+                    ));
+            case "almostThere" -> Uni.createFrom().voidItem().call(() -> getByEventAndEmail(event, email)
+                    .onItem().call((userModel) ->
+                            mailerService.sendAlmostThere(userModel)
+                    ));
+            default -> Uni.createFrom().failure(NotFoundException::new);
+        };
+    }
 }

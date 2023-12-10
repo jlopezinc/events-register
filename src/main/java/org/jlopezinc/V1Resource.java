@@ -105,6 +105,17 @@ public class V1Resource {
         return securityIdentity.getPrincipal().getName();
     }
 
-
+    @POST
+    @Path("/{event}/{email}/sendEmail/{template}")
+    @Produces(MediaType.APPLICATION_JSON)
+    @PermitAll
+    public Uni<Void> sendEmailToUser(@PathParam("event") String event, @HeaderParam("x-api-key") String key,
+                                     @PathParam("email") String email,
+                                     @PathParam("template") String emailTemplate){
+        if (!HARD_KEY.equals(key)){
+            throw new UnauthorizedException();
+        }
+        return eventV1Service.sendEmailTemplate(event, email, emailTemplate);
+    }
 
 }
