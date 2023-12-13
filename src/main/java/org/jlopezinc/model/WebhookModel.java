@@ -21,4 +21,5 @@ public class WebhookModel {
     String guestsNames;
     String guestsCc;
     String payment;
+    String comment;
 }

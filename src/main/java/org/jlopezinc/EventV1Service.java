@@ -336,6 +336,7 @@ public class EventV1Service {
             setPaymentFile(webhookModel.getPayment());
         }});
         userMetadataModel.setCheckIn(new UserMetadataModel.CheckIn());
+        userMetadataModel.setComment(webhookModel.getComment());
         userMetadataModel.setRawWebhook(rawWebhook);
 
         return UserModelDB.builder()

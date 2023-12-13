@@ -44,7 +44,8 @@ curl -X POST 'http://localhost:8080/v1/ttamigosnatal2023/webhook' \
     "guestsCc": "111122111",
     "accept": "Sim",
     "payment": "<a href='https://drive.google.com/open?id=1yc37Z6FqIQPmUAUSf_XZ5OvYalmVIqHl'>File 1<plain>https://drive.google.com/open?id=1yc37Z6FqIQPmUAUSf_XZ5OvYalmVIqHl</plain></a>",
-    "email": "test@gmail.com"
+    "email": "test@gmail.com",
+    "comment": "any comment about the registration, optional"
 }'
 ```
 
