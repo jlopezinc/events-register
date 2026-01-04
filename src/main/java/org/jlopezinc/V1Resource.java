@@ -42,6 +42,13 @@ public class V1Resource {
     }
 
     @GET
+    @Path("/{event}/phone/{phoneNumber}")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Uni<UserModel> getUserByPhone(@PathParam("event") String event, @PathParam("phoneNumber") String phoneNumber){
+        return eventV1Service.getByEventAndPhoneNumber(event, phoneNumber);
+    }
+
+    @GET
     @Path("/{event}/counters")
     @Produces(MediaType.APPLICATION_JSON)
     public Uni<CountersModel> getCountersByEvent(@PathParam("event") String event){
