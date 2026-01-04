@@ -14,6 +14,7 @@ public class UserModelDB extends EventsRegisterDb {
     private String vehicleType;
     private String metadata;
     private boolean checkedIn;
+    private String phoneNumber;
 
     public UserModelDB() {
     }
@@ -36,5 +37,10 @@ public class UserModelDB extends EventsRegisterDb {
     @DynamoDbAttribute("checkedIn")
     public boolean isCheckedIn() {
         return checkedIn;
+    }
+
+    @DynamoDbAttribute("phoneNumber")
+    public String getPhoneNumber() {
+        return phoneNumber;
     }
 }
