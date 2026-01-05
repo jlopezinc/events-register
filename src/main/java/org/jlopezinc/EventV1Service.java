@@ -315,12 +315,18 @@ public class EventV1Service {
                     String existingComment = metadata.getComment();
                     
                     // Update metadata fields if provided
-                    if (updateRequest.getDriverName() != null || updateRequest.getDriverCc() != null) {
+                    if (updateRequest.getDriverName() != null || updateRequest.getDriverCc() != null || 
+                        updateRequest.getGuestsNames() != null) {
                         updatePeopleInMetadata(metadata, updateRequest);
                     }
                     
+                    // Update phone number in metadata (not on driver object to avoid duplication)
                     if (updateRequest.getPhoneNumber() != null) {
                         metadata.setPhoneNumber(updateRequest.getPhoneNumber());
+                        // Also update on driver if people exist
+                        if (metadata.getPeople() != null && !metadata.getPeople().isEmpty()) {
+                            metadata.getPeople().get(0).setPhoneNumber(updateRequest.getPhoneNumber());
+                        }
                     }
                     
                     if (updateRequest.getVehiclePlate() != null || updateRequest.getVehicleBrand() != null) {
@@ -343,20 +349,18 @@ public class EventV1Service {
                         boolean commentsAreDifferent = (existingComment == null) ||
                                                        !newComment.equals(existingComment);
                         
-                        if (commentsAreDifferent) {
+                        if (commentsAreDifferent && StringUtils.isNotBlank(existingComment)) {
                             // Initialize commentsHistory if it doesn't exist
                             if (metadata.getCommentsHistory() == null) {
                                 metadata.setCommentsHistory(new ArrayList<>());
                             }
                             
-                            // Add the previous comment to history only if it exists and is not blank
-                            if (StringUtils.isNotBlank(existingComment)) {
-                                metadata.getCommentsHistory().add(existingComment);
-                            }
-                            
-                            // Update the comment with the new value
-                            metadata.setComment(newComment);
+                            // Add the previous comment to history
+                            metadata.getCommentsHistory().add(existingComment);
                         }
+                        
+                        // Update the comment with the new value
+                        metadata.setComment(newComment);
                     }
                     
                     // Update vehicleType if provided
@@ -399,21 +403,21 @@ public class EventV1Service {
         if (updateRequest.getDriverCc() != null) {
             driver.setCc(updateRequest.getDriverCc());
         }
-        if (updateRequest.getPhoneNumber() != null) {
-            driver.setPhoneNumber(updateRequest.getPhoneNumber());
-        }
+        // Note: Phone number is set separately in updateUserMetadata to avoid duplication
         
         // Update guests if provided
-        if (updateRequest.getGuestsNames() != null) {
+        if (updateRequest.getGuestsNames() != null && StringUtils.isNotBlank(updateRequest.getGuestsNames())) {
             String splitBy = "<BR/>|\n|,";
-            List<String> names = Arrays.asList(updateRequest.getGuestsNames().trim().split(splitBy));
+            List<String> names = new ArrayList<>(Arrays.asList(updateRequest.getGuestsNames().trim().split(splitBy)));
             List<String> ccs = null;
-            if (updateRequest.getGuestsCc() != null) {
-                ccs = Arrays.asList(updateRequest.getGuestsCc().trim().split(splitBy));
+            if (updateRequest.getGuestsCc() != null && StringUtils.isNotBlank(updateRequest.getGuestsCc())) {
+                ccs = new ArrayList<>(Arrays.asList(updateRequest.getGuestsCc().trim().split(splitBy)));
             }
             
             // Remove existing guests (keep only driver)
-            people.subList(1, people.size()).clear();
+            if (people.size() > 1) {
+                people.subList(1, people.size()).clear();
+            }
             
             // Add new guests
             for (int i = 0; i < names.size(); i++) {

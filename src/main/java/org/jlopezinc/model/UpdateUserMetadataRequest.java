@@ -2,8 +2,6 @@ package org.jlopezinc.model;
 
 import lombok.Data;
 
-import java.util.Date;
-
 /**
  * Request model for updating user data via PUT endpoint.
  * All fields except email and event name can be updated.
