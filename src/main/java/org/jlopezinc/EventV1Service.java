@@ -13,7 +13,6 @@ import org.jlopezinc.dynamodb.UserModelDB;
 import org.jlopezinc.model.CountersModel;
 import org.jlopezinc.model.PaymentInfo;
 import org.jlopezinc.model.ReconcileCountersResponse;
-import org.jlopezinc.model.UpdateUserMetadataRequest;
 import org.jlopezinc.model.UserMetadataModel;
 import org.jlopezinc.model.UserModel;
 import org.jlopezinc.model.WebhookModel;
@@ -304,7 +303,7 @@ public class EventV1Service {
                 }));
     }
 
-    public Uni<UserModel> updateUserMetadata(String event, String email, UpdateUserMetadataRequest updateRequest) {
+    public Uni<UserModel> updateUserMetadata(String event, String email, UserModel updateRequest) {
         return getByEventAndEmail(event, email)
                 .onItem().call(userModel -> {
                     if (userModel == null) {
@@ -314,36 +313,42 @@ public class EventV1Service {
                     UserMetadataModel metadata = userModel.getMetadata();
                     String existingComment = metadata.getComment();
                     
+                    // Get the incoming metadata from the request
+                    UserMetadataModel incomingMetadata = updateRequest.getMetadata();
+                    if (incomingMetadata == null) {
+                        return Uni.createFrom().item(userModel);
+                    }
+                    
                     // Update metadata fields if provided
-                    if (updateRequest.getDriverName() != null || updateRequest.getDriverCc() != null || 
-                        updateRequest.getGuestsNames() != null) {
+                    if (incomingMetadata.getPeople() != null && !incomingMetadata.getPeople().isEmpty()) {
                         updatePeopleInMetadata(metadata, updateRequest);
                     }
                     
                     // Update phone number in metadata (not on driver object to avoid duplication)
-                    if (updateRequest.getPhoneNumber() != null) {
-                        metadata.setPhoneNumber(updateRequest.getPhoneNumber());
+                    if (incomingMetadata.getPhoneNumber() != null) {
+                        metadata.setPhoneNumber(incomingMetadata.getPhoneNumber());
                         // Also update on driver if people exist
                         if (metadata.getPeople() != null && !metadata.getPeople().isEmpty()) {
-                            metadata.getPeople().get(0).setPhoneNumber(updateRequest.getPhoneNumber());
+                            metadata.getPeople().get(0).setPhoneNumber(incomingMetadata.getPhoneNumber());
                         }
                     }
                     
-                    if (updateRequest.getVehiclePlate() != null || updateRequest.getVehicleBrand() != null) {
+                    if (incomingMetadata.getVehicle() != null) {
                         updateVehicleInMetadata(metadata, updateRequest);
                     }
                     
-                    if (updateRequest.getPayment() != null) {
+                    PaymentInfo incomingPaymentInfo = incomingMetadata.getPaymentInfo();
+                    if (incomingPaymentInfo != null && incomingPaymentInfo.getPaymentFile() != null) {
                         PaymentInfo paymentInfo = metadata.getPaymentInfo();
                         if (paymentInfo == null) {
                             paymentInfo = new PaymentInfo();
                             metadata.setPaymentInfo(paymentInfo);
                         }
-                        paymentInfo.setPaymentFile(updateRequest.getPayment());
+                        paymentInfo.setPaymentFile(incomingPaymentInfo.getPaymentFile());
                     }
                     
                     // Handle comment with history tracking
-                    String newComment = updateRequest.getComment();
+                    String newComment = incomingMetadata.getComment();
                     if (newComment != null) {
                         // Check if comments are different (handling null cases)
                         boolean commentsAreDifferent = (existingComment == null) ||
@@ -369,9 +374,10 @@ public class EventV1Service {
                         userModel.setVehicleType(vehicleType);
                     }
                     
-                    // Update paid status if provided
-                    if (updateRequest.getPaid() != null) {
-                        userModel.setPaid(updateRequest.getPaid());
+                    // Update paid status if different from current value
+                    // Note: Both fields are primitives, so we can compare directly
+                    if (updateRequest.isPaid() != userModel.isPaid()) {
+                        userModel.setPaid(updateRequest.isPaid());
                     }
 
                     UserModelDB userModelDB = userModelTransform(userModel);
@@ -380,7 +386,15 @@ public class EventV1Service {
                 });
     }
     
-    private void updatePeopleInMetadata(UserMetadataModel metadata, UpdateUserMetadataRequest updateRequest) {
+    private void updatePeopleInMetadata(UserMetadataModel metadata, UserModel updateRequest) {
+        UserMetadataModel incomingMetadata = updateRequest.getMetadata();
+        // Get incoming people data and ensure at least one person (driver) exists
+        if (incomingMetadata == null || incomingMetadata.getPeople() == null || incomingMetadata.getPeople().isEmpty()) {
+            return;
+        }
+        
+        List<UserMetadataModel.People> incomingPeople = incomingMetadata.getPeople();
+        
         List<UserMetadataModel.People> people = metadata.getPeople();
         if (people == null || people.isEmpty()) {
             people = new ArrayList<>();
@@ -397,53 +411,53 @@ public class EventV1Service {
             driver = people.get(0);
         }
         
-        if (updateRequest.getDriverName() != null) {
-            driver.setName(updateRequest.getDriverName());
+        // Update driver from incoming data
+        UserMetadataModel.People incomingDriver = incomingPeople.get(0);
+        if (incomingDriver.getName() != null) {
+            driver.setName(incomingDriver.getName());
         }
-        if (updateRequest.getDriverCc() != null) {
-            driver.setCc(updateRequest.getDriverCc());
+        if (incomingDriver.getCc() != null) {
+            driver.setCc(incomingDriver.getCc());
         }
         // Note: Phone number is set separately in updateUserMetadata to avoid duplication
         
         // Update guests if provided
-        if (updateRequest.getGuestsNames() != null && StringUtils.isNotBlank(updateRequest.getGuestsNames())) {
-            String splitBy = "<BR/>|\n|,";
-            List<String> names = new ArrayList<>(Arrays.asList(updateRequest.getGuestsNames().trim().split(splitBy)));
-            List<String> ccs = null;
-            if (updateRequest.getGuestsCc() != null && StringUtils.isNotBlank(updateRequest.getGuestsCc())) {
-                ccs = new ArrayList<>(Arrays.asList(updateRequest.getGuestsCc().trim().split(splitBy)));
-            }
-            
+        if (incomingPeople.size() > 1) {
             // Remove existing guests (keep only driver)
             if (people.size() > 1) {
                 people.subList(1, people.size()).clear();
             }
             
-            // Add new guests
-            for (int i = 0; i < names.size(); i++) {
-                final String cc = (ccs != null && ccs.size() > i) ? ccs.get(i) : null;
-                String name = names.get(i);
+            // Add new guests from incoming data
+            for (int i = 1; i < incomingPeople.size(); i++) {
+                UserMetadataModel.People incomingGuest = incomingPeople.get(i);
                 UserMetadataModel.People guest = new UserMetadataModel.People();
-                guest.setName(name);
-                guest.setCc(cc);
+                guest.setName(incomingGuest.getName());
+                guest.setCc(incomingGuest.getCc());
                 guest.setType("guest");
                 people.add(guest);
             }
         }
     }
     
-    private void updateVehicleInMetadata(UserMetadataModel metadata, UpdateUserMetadataRequest updateRequest) {
+    private void updateVehicleInMetadata(UserMetadataModel metadata, UserModel updateRequest) {
+        UserMetadataModel incomingMetadata = updateRequest.getMetadata();
+        if (incomingMetadata == null || incomingMetadata.getVehicle() == null) {
+            return;
+        }
+        
         UserMetadataModel.Vehicle vehicle = metadata.getVehicle();
         if (vehicle == null) {
             vehicle = new UserMetadataModel.Vehicle();
             metadata.setVehicle(vehicle);
         }
         
-        if (updateRequest.getVehiclePlate() != null) {
-            vehicle.setPlate(updateRequest.getVehiclePlate());
+        UserMetadataModel.Vehicle incomingVehicle = incomingMetadata.getVehicle();
+        if (incomingVehicle.getPlate() != null) {
+            vehicle.setPlate(incomingVehicle.getPlate());
         }
-        if (updateRequest.getVehicleBrand() != null) {
-            vehicle.setMake(updateRequest.getVehicleBrand());
+        if (incomingVehicle.getMake() != null) {
+            vehicle.setMake(incomingVehicle.getMake());
         }
     }
     
