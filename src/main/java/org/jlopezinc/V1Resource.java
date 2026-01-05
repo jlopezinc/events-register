@@ -19,6 +19,7 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import org.jlopezinc.model.CountersModel;
 import org.jlopezinc.model.PaymentInfo;
+import org.jlopezinc.model.ReconcileCountersResponse;
 import org.jlopezinc.model.UserModel;
 
 @Path("/v1")
@@ -123,6 +124,18 @@ public class V1Resource {
             throw new UnauthorizedException();
         }
         return eventV1Service.sendEmailTemplate(event, email, emailTemplate);
+    }
+
+    @POST
+    @Path("/admin/reconcile-counters/{eventId}")
+    @Produces(MediaType.APPLICATION_JSON)
+    @PermitAll
+    public Uni<ReconcileCountersResponse> reconcileCounters(@PathParam("eventId") String eventId, 
+                                                             @HeaderParam("x-api-key") String key){
+        if (!HARD_KEY.equals(key)){
+            throw new UnauthorizedException();
+        }
+        return eventV1Service.reconcileCounters(eventId);
     }
 
 }
