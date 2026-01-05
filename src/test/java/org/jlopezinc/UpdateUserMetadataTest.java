@@ -5,6 +5,7 @@ import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
 import org.jlopezinc.model.UserMetadataModel;
 import org.junit.jupiter.api.Test;
+import software.amazon.awssdk.utils.StringUtils;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -153,7 +154,7 @@ class UpdateUserMetadataTest {
         // Simulate the history update logic
         if (commentsAreDifferent) {
             // Add the previous comment to history only if it exists and is not blank
-            if (existingComment != null && !existingComment.trim().isEmpty()) {
+            if (StringUtils.isNotBlank(existingComment)) {
                 if (existingMetadata.getCommentsHistory() == null) {
                     existingMetadata.setCommentsHistory(new java.util.ArrayList<>());
                 }
