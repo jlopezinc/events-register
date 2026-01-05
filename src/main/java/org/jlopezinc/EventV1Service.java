@@ -349,12 +349,13 @@ public class EventV1Service {
                     
                     // Handle comment with history tracking
                     String newComment = incomingMetadata.getComment();
-                    if (newComment != null) {
-                        // Check if comments are different (handling null cases)
-                        boolean commentsAreDifferent = (existingComment == null) ||
-                                                       !newComment.equals(existingComment);
-                        
-                        if (commentsAreDifferent && StringUtils.isNotBlank(existingComment)) {
+                    // Check if comments are different (handling null cases)
+                    boolean commentsAreDifferent = (newComment == null && existingComment != null) ||
+                                                   (newComment != null && !newComment.equals(existingComment));
+                    
+                    if (commentsAreDifferent) {
+                        // Add the previous comment to history only if it exists and is not blank
+                        if (StringUtils.isNotBlank(existingComment)) {
                             // Initialize commentsHistory if it doesn't exist
                             if (metadata.getCommentsHistory() == null) {
                                 metadata.setCommentsHistory(new ArrayList<>());
@@ -364,7 +365,7 @@ public class EventV1Service {
                             metadata.getCommentsHistory().add(existingComment);
                         }
                         
-                        // Update the comment with the new value
+                        // Update the comment with the new value (including null to clear it)
                         metadata.setComment(newComment);
                     }
                     
