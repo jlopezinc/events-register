@@ -82,28 +82,52 @@ curl -X POST 'http://localhost:8080/v1/ttamigosnatal2023/jlopez.inc@gmail.com/se
 
 ```
 
-## Update user metadata (comment field)
-Updates the comment field for a user. When the comment is changed, the previous value is automatically moved to `commentsHistory`. This endpoint is intended for frontend applications.
+## Update user data
+Updates user data including personal details, vehicle information, guests, payment, and comments. This endpoint is intended for frontend applications. All fields except email and event name can be updated.
 
 ```shell
 curl -X PUT 'http://localhost:8080/v1/ttamigosnatal2023/test@example.com/metadata' \
 -H 'x-api-key:7KVjU7bQmy' \
 -H 'content-type:application/json' \
 -d '{
-    "comment": "Payment confirmed - ready for check-in"
+    "driverName": "Updated Driver Name",
+    "driverCc": "12345678",
+    "phoneNumber": "912345678",
+    "vehicleType": "Jipe",
+    "vehiclePlate": "AB-12-34",
+    "vehicleBrand": "Toyota Land Cruiser",
+    "guestsNumber": 2,
+    "guestsNames": "Guest One<BR/>Guest Two",
+    "guestsCc": "11111111<BR/>22222222",
+    "payment": "payment_proof_url",
+    "comment": "Payment confirmed - ready for check-in",
+    "paid": true
 }'
 ```
 
-**Response**: Returns the updated user object with metadata including:
-- `comment`: The current comment
-- `commentsHistory`: Array of previous comment values (if any)
+**Updatable Fields**:
+- `driverName`: Driver's full name
+- `driverCc`: Driver's ID/CC number
+- `phoneNumber`: Contact phone number
+- `vehicleType`: Type of vehicle (Jipe/car, Mota/motorcycle, Quad)
+- `vehiclePlate`: Vehicle license plate
+- `vehicleBrand`: Vehicle make/brand
+- `guestsNumber`: Number of guests
+- `guestsNames`: Guest names separated by `<BR/>`, newline, or comma
+- `guestsCc`: Guest ID numbers separated by `<BR/>`, newline, or comma
+- `payment`: Payment proof URL or reference
+- `comment`: Admin comment/notes
+- `paid`: Payment status (true/false)
 
-**Behavior**:
-- If the new comment is different from the current comment, the current comment is moved to `commentsHistory` before updating
+**Note**: All fields are optional. Only provide the fields you want to update. The email and event name cannot be changed.
+
+**Response**: Returns the updated user object with full metadata.
+
+**Comment History Behavior**:
+- When the comment is changed, the previous value is automatically moved to `commentsHistory`
 - If there is no previous comment or it's empty, no entry is added to the history
-- If the new comment is the same as the current comment, no changes are made
 - The `commentsHistory` field accumulates all past values of the comment field
-- Frontend applications can retrieve the `commentsHistory` array from the user metadata to display comment history to admin users
+- Frontend applications can retrieve the `commentsHistory` array to display comment history to admin users
 
 # building and deploying (native)
 

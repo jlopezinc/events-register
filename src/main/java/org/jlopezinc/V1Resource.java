@@ -110,7 +110,7 @@ public class V1Resource {
         if (!HARD_KEY.equals(key)){
             throw new UnauthorizedException();
         }
-        return eventV1Service.updateUserMetadata(event, email, body.getComment());
+        return eventV1Service.updateUserMetadata(event, email, body);
     }
 
     @DELETE
