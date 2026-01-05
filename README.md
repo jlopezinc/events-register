@@ -50,11 +50,10 @@ curl -X POST 'http://localhost:8080/v1/ttamigosnatal2023/webhook' \
 }'
 ```
 
-**Comment Field Behavior:**
+**Comment Field Behavior (B2B webhook):**
 - When updating an existing user (same email), if the `comment` field has a different value than before, the previous comment is automatically moved to `commentsHistory` before updating with the new value.
 - The `commentsHistory` field in the metadata accumulates all past values of the comment field.
 - If there is no prior comment or if the comment was not set, it simply updates as usual without adding to history.
-- Frontend applications can retrieve the `commentsHistory` array from the user metadata to display comment history to admin users.
 
 ## Get event counters
 ```shell
@@ -82,6 +81,29 @@ Response includes:
 curl -X POST 'http://localhost:8080/v1/ttamigosnatal2023/jlopez.inc@gmail.com/sendEmail/almostThere' -H 'x-api-key:7KVjU7bQmy'
 
 ```
+
+## Update user metadata (comment field)
+Updates the comment field for a user. When the comment is changed, the previous value is automatically moved to `commentsHistory`. This endpoint is intended for frontend applications.
+
+```shell
+curl -X PUT 'http://localhost:8080/v1/ttamigosnatal2023/test@example.com/metadata' \
+-H 'x-api-key:7KVjU7bQmy' \
+-H 'content-type:application/json' \
+-d '{
+    "comment": "Payment confirmed - ready for check-in"
+}'
+```
+
+**Response**: Returns the updated user object with metadata including:
+- `comment`: The current comment
+- `commentsHistory`: Array of previous comment values (if any)
+
+**Behavior**:
+- If the new comment is different from the current comment, the current comment is moved to `commentsHistory` before updating
+- If there is no previous comment or it's empty, no entry is added to the history
+- If the new comment is the same as the current comment, no changes are made
+- The `commentsHistory` field accumulates all past values of the comment field
+- Frontend applications can retrieve the `commentsHistory` array from the user metadata to display comment history to admin users
 
 # building and deploying (native)
 

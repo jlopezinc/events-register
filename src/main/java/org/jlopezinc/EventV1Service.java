@@ -235,8 +235,11 @@ public class EventV1Service {
                                     String existingComment = existingMetadata.getComment();
                                     String newComment = newMetadata.getComment();
                                     
-                                    // If the comment is different, add the old one to history
-                                    if (newComment != null && !newComment.equals(existingComment)) {
+                                    // Check if comments are different (handling null cases)
+                                    boolean commentsAreDifferent = (newComment == null && existingComment != null) ||
+                                                                   (newComment != null && !newComment.equals(existingComment));
+                                    
+                                    if (commentsAreDifferent) {
                                         // Initialize commentsHistory if it doesn't exist
                                         if (newMetadata.getCommentsHistory() == null) {
                                             newMetadata.setCommentsHistory(new ArrayList<>());
@@ -298,6 +301,40 @@ public class EventV1Service {
                                 return Uni.createFrom().voidItem();
                             });
                 }));
+    }
+
+    public Uni<UserModel> updateUserMetadata(String event, String email, String newComment) {
+        return getByEventAndEmail(event, email)
+                .onItem().call(userModel -> {
+                    if (userModel == null) {
+                        return Uni.createFrom().failure(new NoContentException("Not Found"));
+                    }
+
+                    UserMetadataModel metadata = userModel.getMetadata();
+                    String existingComment = metadata.getComment();
+                    
+                    // Check if comments are different (handling null cases)
+                    boolean commentsAreDifferent = (newComment == null && existingComment != null) ||
+                                                   (newComment != null && !newComment.equals(existingComment));
+                    
+                    if (commentsAreDifferent) {
+                        // Initialize commentsHistory if it doesn't exist
+                        if (metadata.getCommentsHistory() == null) {
+                            metadata.setCommentsHistory(new ArrayList<>());
+                        }
+                        
+                        // Add the previous comment to history only if it exists and is not blank
+                        if (StringUtils.isNotBlank(existingComment)) {
+                            metadata.getCommentsHistory().add(existingComment);
+                        }
+                        
+                        // Update the comment with the new value
+                        metadata.setComment(newComment);
+                    }
+
+                    UserModelDB userModelDB = userModelTransform(userModel);
+                    return Uni.createFrom().completionStage(() -> userModelTable.updateItem(userModelDB));
+                });
     }
 
     private Uni<Void> incrementOrDecrementCounter(String event, String sortKey, boolean increment){
