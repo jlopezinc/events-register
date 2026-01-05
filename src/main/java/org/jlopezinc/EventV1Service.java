@@ -13,6 +13,7 @@ import org.jlopezinc.dynamodb.UserModelDB;
 import org.jlopezinc.model.CountersModel;
 import org.jlopezinc.model.PaymentInfo;
 import org.jlopezinc.model.ReconcileCountersResponse;
+import org.jlopezinc.model.UpdateUserMetadataRequest;
 import org.jlopezinc.model.UserMetadataModel;
 import org.jlopezinc.model.UserModel;
 import org.jlopezinc.model.WebhookModel;
@@ -225,6 +226,42 @@ public class EventV1Service {
                 .onItem().call((existingUser) -> {
                             // Only increment counter if user doesn't already exist
                             final boolean isNewUser = (existingUser == null);
+                            
+                            // If user exists, preserve comment history
+                            if (!isNewUser) {
+                                try {
+                                    UserMetadataModel existingMetadata = existingUser.getMetadata();
+                                    UserMetadataModel newMetadata = objectMapper.readValue(userModelDB.getMetadata(), UserMetadataModel.class);
+                                    
+                                    String existingComment = existingMetadata.getComment();
+                                    String newComment = newMetadata.getComment();
+                                    
+                                    // Check if comments are different (handling null cases)
+                                    boolean commentsAreDifferent = (newComment == null && existingComment != null) ||
+                                                                   (newComment != null && !newComment.equals(existingComment));
+                                    
+                                    if (commentsAreDifferent) {
+                                        // Initialize commentsHistory if it doesn't exist
+                                        if (newMetadata.getCommentsHistory() == null) {
+                                            newMetadata.setCommentsHistory(new ArrayList<>());
+                                        }
+                                        
+                                        // Add the previous comment to history only if it exists and is not blank
+                                        if (StringUtils.isNotBlank(existingComment)) {
+                                            newMetadata.getCommentsHistory().add(existingComment);
+                                        }
+                                    } else {
+                                        // Preserve existing comments history
+                                        newMetadata.setCommentsHistory(existingMetadata.getCommentsHistory());
+                                    }
+                                    
+                                    // Update the metadata in userModelDB
+                                    userModelDB.setMetadata(objectMapper.writeValueAsString(newMetadata));
+                                } catch (JsonProcessingException e) {
+                                    throw new RuntimeException(e);
+                                }
+                            }
+                            
                             return Uni.createFrom().completionStage(() -> userModelTable.putItem(userModelDB)).onItem()
                                     .call(() -> {
                                         if (isNewUser) {
@@ -265,6 +302,158 @@ public class EventV1Service {
                                 return Uni.createFrom().voidItem();
                             });
                 }));
+    }
+
+    public Uni<UserModel> updateUserMetadata(String event, String email, UpdateUserMetadataRequest updateRequest) {
+        return getByEventAndEmail(event, email)
+                .onItem().call(userModel -> {
+                    if (userModel == null) {
+                        return Uni.createFrom().failure(new NoContentException("Not Found"));
+                    }
+
+                    UserMetadataModel metadata = userModel.getMetadata();
+                    String existingComment = metadata.getComment();
+                    
+                    // Update metadata fields if provided
+                    if (updateRequest.getDriverName() != null || updateRequest.getDriverCc() != null || 
+                        updateRequest.getGuestsNames() != null) {
+                        updatePeopleInMetadata(metadata, updateRequest);
+                    }
+                    
+                    // Update phone number in metadata (not on driver object to avoid duplication)
+                    if (updateRequest.getPhoneNumber() != null) {
+                        metadata.setPhoneNumber(updateRequest.getPhoneNumber());
+                        // Also update on driver if people exist
+                        if (metadata.getPeople() != null && !metadata.getPeople().isEmpty()) {
+                            metadata.getPeople().get(0).setPhoneNumber(updateRequest.getPhoneNumber());
+                        }
+                    }
+                    
+                    if (updateRequest.getVehiclePlate() != null || updateRequest.getVehicleBrand() != null) {
+                        updateVehicleInMetadata(metadata, updateRequest);
+                    }
+                    
+                    if (updateRequest.getPayment() != null) {
+                        PaymentInfo paymentInfo = metadata.getPaymentInfo();
+                        if (paymentInfo == null) {
+                            paymentInfo = new PaymentInfo();
+                            metadata.setPaymentInfo(paymentInfo);
+                        }
+                        paymentInfo.setPaymentFile(updateRequest.getPayment());
+                    }
+                    
+                    // Handle comment with history tracking
+                    String newComment = updateRequest.getComment();
+                    if (newComment != null) {
+                        // Check if comments are different (handling null cases)
+                        boolean commentsAreDifferent = (existingComment == null) ||
+                                                       !newComment.equals(existingComment);
+                        
+                        if (commentsAreDifferent && StringUtils.isNotBlank(existingComment)) {
+                            // Initialize commentsHistory if it doesn't exist
+                            if (metadata.getCommentsHistory() == null) {
+                                metadata.setCommentsHistory(new ArrayList<>());
+                            }
+                            
+                            // Add the previous comment to history
+                            metadata.getCommentsHistory().add(existingComment);
+                        }
+                        
+                        // Update the comment with the new value
+                        metadata.setComment(newComment);
+                    }
+                    
+                    // Update vehicleType if provided
+                    if (updateRequest.getVehicleType() != null) {
+                        String vehicleType = normalizeVehicleType(updateRequest.getVehicleType());
+                        userModel.setVehicleType(vehicleType);
+                    }
+                    
+                    // Update paid status if provided
+                    if (updateRequest.getPaid() != null) {
+                        userModel.setPaid(updateRequest.getPaid());
+                    }
+
+                    UserModelDB userModelDB = userModelTransform(userModel);
+                    return Uni.createFrom().completionStage(() -> userModelTable.updateItem(userModelDB))
+                            .onItem().transform(userModelDbTransform);
+                });
+    }
+    
+    private void updatePeopleInMetadata(UserMetadataModel metadata, UpdateUserMetadataRequest updateRequest) {
+        List<UserMetadataModel.People> people = metadata.getPeople();
+        if (people == null || people.isEmpty()) {
+            people = new ArrayList<>();
+            metadata.setPeople(people);
+        }
+        
+        // Update driver (first person in the list)
+        UserMetadataModel.People driver;
+        if (people.isEmpty()) {
+            driver = new UserMetadataModel.People();
+            driver.setType("driver");
+            people.add(driver);
+        } else {
+            driver = people.get(0);
+        }
+        
+        if (updateRequest.getDriverName() != null) {
+            driver.setName(updateRequest.getDriverName());
+        }
+        if (updateRequest.getDriverCc() != null) {
+            driver.setCc(updateRequest.getDriverCc());
+        }
+        // Note: Phone number is set separately in updateUserMetadata to avoid duplication
+        
+        // Update guests if provided
+        if (updateRequest.getGuestsNames() != null && StringUtils.isNotBlank(updateRequest.getGuestsNames())) {
+            String splitBy = "<BR/>|\n|,";
+            List<String> names = new ArrayList<>(Arrays.asList(updateRequest.getGuestsNames().trim().split(splitBy)));
+            List<String> ccs = null;
+            if (updateRequest.getGuestsCc() != null && StringUtils.isNotBlank(updateRequest.getGuestsCc())) {
+                ccs = new ArrayList<>(Arrays.asList(updateRequest.getGuestsCc().trim().split(splitBy)));
+            }
+            
+            // Remove existing guests (keep only driver)
+            if (people.size() > 1) {
+                people.subList(1, people.size()).clear();
+            }
+            
+            // Add new guests
+            for (int i = 0; i < names.size(); i++) {
+                final String cc = (ccs != null && ccs.size() > i) ? ccs.get(i) : null;
+                String name = names.get(i);
+                UserMetadataModel.People guest = new UserMetadataModel.People();
+                guest.setName(name);
+                guest.setCc(cc);
+                guest.setType("guest");
+                people.add(guest);
+            }
+        }
+    }
+    
+    private void updateVehicleInMetadata(UserMetadataModel metadata, UpdateUserMetadataRequest updateRequest) {
+        UserMetadataModel.Vehicle vehicle = metadata.getVehicle();
+        if (vehicle == null) {
+            vehicle = new UserMetadataModel.Vehicle();
+            metadata.setVehicle(vehicle);
+        }
+        
+        if (updateRequest.getVehiclePlate() != null) {
+            vehicle.setPlate(updateRequest.getVehiclePlate());
+        }
+        if (updateRequest.getVehicleBrand() != null) {
+            vehicle.setMake(updateRequest.getVehicleBrand());
+        }
+    }
+    
+    private String normalizeVehicleType(String vehicleType) {
+        return switch (vehicleType.toLowerCase()) {
+            case "mota", "motorcycle" -> "motorcycle";
+            case "quad" -> "quad";
+            case "jipe", "car" -> "car";
+            default -> "car";
+        };
     }
 
     private Uni<Void> incrementOrDecrementCounter(String event, String sortKey, boolean increment){
