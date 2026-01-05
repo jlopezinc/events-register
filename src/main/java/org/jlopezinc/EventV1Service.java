@@ -333,7 +333,8 @@ public class EventV1Service {
                     }
 
                     UserModelDB userModelDB = userModelTransform(userModel);
-                    return Uni.createFrom().completionStage(() -> userModelTable.updateItem(userModelDB));
+                    return Uni.createFrom().completionStage(() -> userModelTable.updateItem(userModelDB))
+                            .onItem().transform(userModelDbTransform);
                 });
     }
 
