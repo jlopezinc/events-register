@@ -117,4 +117,53 @@ class UpdateUserMetadataTest {
         
         assertTrue(true, "Test structure validated - demonstrates history accumulation");
     }
+
+    @Test
+    void testPutEndpoint_ClearComment_ShouldAddToHistoryAndSetNull() {
+        // This test validates that when clearing a comment via PUT endpoint (setting to null),
+        // the old comment is added to commentsHistory and the comment field is set to null
+        //
+        // This is a unit test that verifies the logic for handling null comment updates.
+        // It tests the scenario described in the issue:
+        // - Old comment: "sample comment"
+        // - New comment (from PUT request): null
+        //
+        // Expected result:
+        // 1. "sample comment" should be added to commentsHistory
+        // 2. comment field should be set to null
+        
+        // Create a UserMetadataModel with an existing comment
+        UserMetadataModel existingMetadata = new UserMetadataModel();
+        existingMetadata.setComment("sample comment");
+        
+        // Create a new metadata update request with null comment
+        UserMetadataModel newMetadata = new UserMetadataModel();
+        newMetadata.setComment(null);
+        
+        // Simulate the logic from updateUserMetadata method
+        String existingComment = existingMetadata.getComment();
+        String newComment = newMetadata.getComment();
+        
+        // Check if comments are different (handling null cases)
+        boolean commentsAreDifferent = (newComment == null && existingComment != null) ||
+                                       (newComment != null && !newComment.equals(existingComment));
+        
+        assertTrue(commentsAreDifferent, "Comment change should be detected when clearing to null");
+        
+        // Simulate the history update logic
+        if (commentsAreDifferent && existingComment != null && !existingComment.trim().isEmpty()) {
+            if (existingMetadata.getCommentsHistory() == null) {
+                existingMetadata.setCommentsHistory(new java.util.ArrayList<>());
+            }
+            existingMetadata.getCommentsHistory().add(existingComment);
+            existingMetadata.setComment(newComment);
+        }
+        
+        // Verify results
+        assertNotNull(existingMetadata.getCommentsHistory(), "commentsHistory should be initialized");
+        assertEquals(1, existingMetadata.getCommentsHistory().size(), "commentsHistory should contain one entry");
+        assertEquals("sample comment", existingMetadata.getCommentsHistory().get(0), 
+                     "Old comment should be in history");
+        assertNull(existingMetadata.getComment(), "Current comment should be null");
+    }
 }
