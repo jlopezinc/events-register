@@ -388,15 +388,12 @@ public class EventV1Service {
     
     private void updatePeopleInMetadata(UserMetadataModel metadata, UserModel updateRequest) {
         UserMetadataModel incomingMetadata = updateRequest.getMetadata();
-        if (incomingMetadata == null || incomingMetadata.getPeople() == null) {
+        // Get incoming people data and ensure at least one person (driver) exists
+        if (incomingMetadata == null || incomingMetadata.getPeople() == null || incomingMetadata.getPeople().isEmpty()) {
             return;
         }
         
-        // Get incoming people data and ensure at least one person (driver) exists
         List<UserMetadataModel.People> incomingPeople = incomingMetadata.getPeople();
-        if (incomingPeople.isEmpty()) {
-            return;
-        }
         
         List<UserMetadataModel.People> people = metadata.getPeople();
         if (people == null || people.isEmpty()) {
