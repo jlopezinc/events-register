@@ -105,7 +105,6 @@ public class V1Resource {
     @Path("/{event}/{email}")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
-    @PermitAll
     public Uni<UserModel> updateUserMetadata(@PathParam("event") String event, @HeaderParam("x-api-key") String key, @PathParam("email") String email, org.jlopezinc.model.UpdateUserMetadataRequest body){
         if (!HARD_KEY.equals(key)){
             throw new UnauthorizedException();
