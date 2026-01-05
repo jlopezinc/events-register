@@ -151,11 +151,15 @@ class UpdateUserMetadataTest {
         assertTrue(commentsAreDifferent, "Comment change should be detected when clearing to null");
         
         // Simulate the history update logic
-        if (commentsAreDifferent && existingComment != null && !existingComment.trim().isEmpty()) {
-            if (existingMetadata.getCommentsHistory() == null) {
-                existingMetadata.setCommentsHistory(new java.util.ArrayList<>());
+        if (commentsAreDifferent) {
+            // Add the previous comment to history only if it exists and is not blank
+            if (existingComment != null && !existingComment.trim().isEmpty()) {
+                if (existingMetadata.getCommentsHistory() == null) {
+                    existingMetadata.setCommentsHistory(new java.util.ArrayList<>());
+                }
+                existingMetadata.getCommentsHistory().add(existingComment);
             }
-            existingMetadata.getCommentsHistory().add(existingComment);
+            // Update the comment with the new value (including null to clear it)
             existingMetadata.setComment(newComment);
         }
         
