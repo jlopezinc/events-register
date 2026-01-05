@@ -583,6 +583,6 @@ public class EventV1Service {
                         return Uni.createFrom().completionStage(() -> counterModelTable.updateItem(counterDB));
                     }
                 })
-                .onItem().transformToUni(v -> Uni.createFrom().voidItem());
+                .onItem().ignore().andContinueWithNull();
     }
 }
