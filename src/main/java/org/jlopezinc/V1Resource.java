@@ -57,7 +57,7 @@ public class V1Resource {
     }
 
     @PUT
-    @Path("/{event}/{email}")
+    @Path("/{event}/{email}/checkin")
     @Produces(MediaType.APPLICATION_JSON)
     public Uni<UserModel> checkInToken(@PathParam("event") String event, @PathParam("email") String email){
         String cognitoUser = getCognitoUser();
