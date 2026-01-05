@@ -337,13 +337,14 @@ public class EventV1Service {
                         updateVehicleInMetadata(metadata, updateRequest);
                     }
                     
-                    if (incomingMetadata.getPaymentInfo() != null && incomingMetadata.getPaymentInfo().getPaymentFile() != null) {
+                    PaymentInfo incomingPaymentInfo = incomingMetadata.getPaymentInfo();
+                    if (incomingPaymentInfo != null && incomingPaymentInfo.getPaymentFile() != null) {
                         PaymentInfo paymentInfo = metadata.getPaymentInfo();
                         if (paymentInfo == null) {
                             paymentInfo = new PaymentInfo();
                             metadata.setPaymentInfo(paymentInfo);
                         }
-                        paymentInfo.setPaymentFile(incomingMetadata.getPaymentInfo().getPaymentFile());
+                        paymentInfo.setPaymentFile(incomingPaymentInfo.getPaymentFile());
                     }
                     
                     // Handle comment with history tracking
@@ -373,7 +374,8 @@ public class EventV1Service {
                         userModel.setVehicleType(vehicleType);
                     }
                     
-                    // Update paid status if provided - check if the paid field is different from current
+                    // Update paid status if different from current value
+                    // Note: Both fields are primitives, so we can compare directly
                     if (updateRequest.isPaid() != userModel.isPaid()) {
                         userModel.setPaid(updateRequest.isPaid());
                     }
@@ -386,7 +388,13 @@ public class EventV1Service {
     
     private void updatePeopleInMetadata(UserMetadataModel metadata, UserModel updateRequest) {
         UserMetadataModel incomingMetadata = updateRequest.getMetadata();
-        if (incomingMetadata == null || incomingMetadata.getPeople() == null || incomingMetadata.getPeople().isEmpty()) {
+        if (incomingMetadata == null || incomingMetadata.getPeople() == null) {
+            return;
+        }
+        
+        // Get incoming people data and ensure at least one person (driver) exists
+        List<UserMetadataModel.People> incomingPeople = incomingMetadata.getPeople();
+        if (incomingPeople.isEmpty()) {
             return;
         }
         
@@ -395,9 +403,6 @@ public class EventV1Service {
             people = new ArrayList<>();
             metadata.setPeople(people);
         }
-        
-        // Get incoming people data
-        List<UserMetadataModel.People> incomingPeople = incomingMetadata.getPeople();
         
         // Update driver (first person in the list)
         UserMetadataModel.People driver;
