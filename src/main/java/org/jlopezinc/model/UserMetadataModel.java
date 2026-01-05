@@ -16,6 +16,7 @@ public class UserMetadataModel {
     private String rawWebhook;
     private PaymentInfo paymentInfo;
     private String comment;
+    private List<String> commentsHistory;
 
     @Data
     public static class Vehicle{

@@ -50,6 +50,12 @@ curl -X POST 'http://localhost:8080/v1/ttamigosnatal2023/webhook' \
 }'
 ```
 
+**Comment Field Behavior:**
+- When updating an existing user (same email), if the `comment` field has a different value than before, the previous comment is automatically moved to `commentsHistory` before updating with the new value.
+- The `commentsHistory` field in the metadata accumulates all past values of the comment field.
+- If there is no prior comment or if the comment was not set, it simply updates as usual without adding to history.
+- Frontend applications can retrieve the `commentsHistory` array from the user metadata to display comment history to admin users.
+
 ## Get event counters
 ```shell
 curl -X GET 'http://localhost:8080/v1/ttamigosnatal2023/counters' \

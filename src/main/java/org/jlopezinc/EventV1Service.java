@@ -225,6 +225,39 @@ public class EventV1Service {
                 .onItem().call((existingUser) -> {
                             // Only increment counter if user doesn't already exist
                             final boolean isNewUser = (existingUser == null);
+                            
+                            // If user exists, preserve comment history
+                            if (!isNewUser) {
+                                try {
+                                    UserMetadataModel existingMetadata = existingUser.getMetadata();
+                                    UserMetadataModel newMetadata = objectMapper.readValue(userModelDB.getMetadata(), UserMetadataModel.class);
+                                    
+                                    String existingComment = existingMetadata.getComment();
+                                    String newComment = newMetadata.getComment();
+                                    
+                                    // If the comment is different, add the old one to history
+                                    if (newComment != null && !newComment.equals(existingComment)) {
+                                        // Initialize commentsHistory if it doesn't exist
+                                        if (newMetadata.getCommentsHistory() == null) {
+                                            newMetadata.setCommentsHistory(new ArrayList<>());
+                                        }
+                                        
+                                        // Add the previous comment to history only if it exists and is not blank
+                                        if (StringUtils.isNotBlank(existingComment)) {
+                                            newMetadata.getCommentsHistory().add(existingComment);
+                                        }
+                                    } else {
+                                        // Preserve existing comments history
+                                        newMetadata.setCommentsHistory(existingMetadata.getCommentsHistory());
+                                    }
+                                    
+                                    // Update the metadata in userModelDB
+                                    userModelDB.setMetadata(objectMapper.writeValueAsString(newMetadata));
+                                } catch (JsonProcessingException e) {
+                                    throw new RuntimeException(e);
+                                }
+                            }
+                            
                             return Uni.createFrom().completionStage(() -> userModelTable.putItem(userModelDB)).onItem()
                                     .call(() -> {
                                         if (isNewUser) {
