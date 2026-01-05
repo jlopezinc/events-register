@@ -21,6 +21,7 @@ sam local start-api --template target/sam.jvm.yaml
 This section has examples for this service endpoints.
 
 If you are using the Quarkus dev mode, use http://localhost:8080. For sam local, use http://localhost:3000 
+
 ## Webhook to register a new user
 ```shell
 curl -X POST 'http://localhost:8080/v1/ttamigosnatal2023/webhook' \
@@ -48,6 +49,27 @@ curl -X POST 'http://localhost:8080/v1/ttamigosnatal2023/webhook' \
     "comment": "any comment about the registration, optional"
 }'
 ```
+
+## Get event counters
+```shell
+curl -X GET 'http://localhost:8080/v1/ttamigosnatal2023/counters' \
+-H 'x-api-key:7KVjU7bQmy'
+```
+
+## Admin: Reconcile event counters
+This endpoint recalculates all counters for an event by traversing all users in DynamoDB and counting the actual registrations, check-ins, and payments. It returns the before/after counter values. Use this endpoint when counters may have gone out of sync due to errors or bugs.
+
+```shell
+curl -X POST 'http://localhost:8080/v1/admin/reconcile-counters/ttamigosnatal2023' \
+-H 'x-api-key:7KVjU7bQmy'
+```
+
+Response includes:
+- `status`: "success" if reconciliation completed
+- `eventId`: The event that was reconciled
+- `before`: Counter values before reconciliation
+- `after`: Counter values after reconciliation  
+- `message`: Summary of what was done
 
 ## Send a specific email for a registered user
 ```shell

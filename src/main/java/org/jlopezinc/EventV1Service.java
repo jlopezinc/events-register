@@ -12,6 +12,7 @@ import org.jlopezinc.dynamodb.CounterDB;
 import org.jlopezinc.dynamodb.UserModelDB;
 import org.jlopezinc.model.CountersModel;
 import org.jlopezinc.model.PaymentInfo;
+import org.jlopezinc.model.ReconcileCountersResponse;
 import org.jlopezinc.model.UserMetadataModel;
 import org.jlopezinc.model.UserModel;
 import org.jlopezinc.model.WebhookModel;
@@ -221,10 +222,16 @@ public class EventV1Service {
             throw new RuntimeException(e);
         }
         return Uni.createFrom().voidItem().call(() -> getByEventAndEmail(event, userModelDB.getUserEmail())
-                .onItem().call((userModel) -> {
-                            // and send an email
+                .onItem().call((existingUser) -> {
+                            // Only increment counter if user doesn't already exist
+                            final boolean isNewUser = (existingUser == null);
                             return Uni.createFrom().completionStage(() -> userModelTable.putItem(userModelDB)).onItem()
-                                    .call(() -> incrementOrDecrementTotalCounter(userModelDB, true))
+                                    .call(() -> {
+                                        if (isNewUser) {
+                                            return incrementOrDecrementTotalCounter(userModelDB, true);
+                                        }
+                                        return Uni.createFrom().voidItem();
+                                    })
                                     .call(() -> mailerService.sendRegistrationEmail(userModelDbTransform.apply(userModelDB)));
                         }
                 ));
@@ -447,5 +454,135 @@ public class EventV1Service {
                     ));
             default -> Uni.createFrom().failure(NotFoundException::new);
         };
+    }
+
+    public Uni<ReconcileCountersResponse> reconcileCounters(String event) {
+        // Get current counters before reconciliation
+        return getCountersByEvent(event)
+                .onItem().transformToUni(beforeCounters -> {
+                    // Query all users for this event
+                    QueryConditional queryConditional = QueryConditional.keyEqualTo(Key.builder().partitionValue(event).build());
+                    
+                    return Uni.createFrom().completionStage(() -> {
+                        CompletableFuture<List<UserModelDB>> usersFuture = new CompletableFuture<>();
+                        List<UserModelDB> allUsers = new ArrayList<>();
+                        
+                        userModelTable.query(r -> r.queryConditional(queryConditional))
+                                .subscribe(page -> {
+                                    // Filter out counter records (they don't have user emails in the sort key)
+                                    page.items().stream()
+                                            .filter(user -> user.getUserEmail() != null && !user.getUserEmail().startsWith("total") 
+                                                    && !user.getUserEmail().startsWith(CHECK_IN_COUNTER) 
+                                                    && !user.getUserEmail().startsWith(PAID_COUNTER))
+                                            .forEach(allUsers::add);
+                                })
+                                .whenComplete((v, error) -> {
+                                    if (error != null) {
+                                        usersFuture.completeExceptionally(error);
+                                    } else {
+                                        usersFuture.complete(allUsers);
+                                    }
+                                });
+                        
+                        return usersFuture;
+                    }).onItem().transformToUni(users -> {
+                                // Calculate actual counts
+                                long totalCar = 0;
+                                long totalMotorcycle = 0;
+                                long totalQuad = 0;
+                                long checkedInCar = 0;
+                                long checkedInMotorcycle = 0;
+                                long checkedInQuad = 0;
+                                long paidTotal = 0;
+                                long paidCar = 0;
+                                long paidMotorcycle = 0;
+                                long paidQuad = 0;
+                                long totalParticipants = 0;
+                                
+                                for (UserModelDB user : users) {
+                                    String vehicleType = user.getVehicleType();
+                                    
+                                    // Count by vehicle type
+                                    switch (vehicleType) {
+                                        case "car":
+                                            totalCar++;
+                                            if (user.isCheckedIn()) checkedInCar++;
+                                            if (user.isPaid()) paidCar++;
+                                            break;
+                                        case "motorcycle":
+                                            totalMotorcycle++;
+                                            if (user.isCheckedIn()) checkedInMotorcycle++;
+                                            if (user.isPaid()) paidMotorcycle++;
+                                            break;
+                                        case "quad":
+                                            totalQuad++;
+                                            if (user.isCheckedIn()) checkedInQuad++;
+                                            if (user.isPaid()) paidQuad++;
+                                            break;
+                                    }
+                                    
+                                    if (user.isPaid()) paidTotal++;
+                                    
+                                    // Count total participants (driver + guests)
+                                    try {
+                                        UserMetadataModel metadata = objectMapper.readValue(user.getMetadata(), UserMetadataModel.class);
+                                        totalParticipants += metadata.getPeople() != null ? metadata.getPeople().size() : 1;
+                                    } catch (JsonProcessingException e) {
+                                        Log.error("Error parsing user metadata for participant count", e);
+                                        totalParticipants++; // At least count the driver
+                                    }
+                                }
+                                
+                                long totalUsers = totalCar + totalMotorcycle + totalQuad;
+                                
+                                // Update all counters with actual values
+                                List<Uni<Void>> updates = new ArrayList<>();
+                                
+                                updates.add(setCounter(event, "total", totalUsers));
+                                updates.add(setCounter(event, "totalcar", totalCar));
+                                updates.add(setCounter(event, "totalmotorcycle", totalMotorcycle));
+                                updates.add(setCounter(event, "totalquad", totalQuad));
+                                updates.add(setCounter(event, CHECK_IN_COUNTER + "car", checkedInCar));
+                                updates.add(setCounter(event, CHECK_IN_COUNTER + "motorcycle", checkedInMotorcycle));
+                                updates.add(setCounter(event, CHECK_IN_COUNTER + "quad", checkedInQuad));
+                                updates.add(setCounter(event, PAID_COUNTER, paidTotal));
+                                updates.add(setCounter(event, PAID_COUNTER + "car", paidCar));
+                                updates.add(setCounter(event, PAID_COUNTER + "motorcycle", paidMotorcycle));
+                                updates.add(setCounter(event, PAID_COUNTER + "quad", paidQuad));
+                                updates.add(setCounter(event, TOTAL_PARTICIPANTS_COUNTER, totalParticipants));
+                                
+                                return Uni.combine().all().unis(updates)
+                                        .combinedWith(results -> null)
+                                        .onItem().transformToUni(v -> getCountersByEvent(event))
+                                        .onItem().transform(afterCounters -> {
+                                            ReconcileCountersResponse response = new ReconcileCountersResponse();
+                                            response.setEventId(event);
+                                            response.setStatus("success");
+                                            response.setBefore(beforeCounters);
+                                            response.setAfter(afterCounters);
+                                            response.setMessage("Counters reconciled successfully. Scanned " + users.size() + " user records.");
+                                            return response;
+                                        });
+                            });
+                });
+    }
+    
+    private Uni<Void> setCounter(String event, String sortKey, long value) {
+        Key key = Key.builder().partitionValue(event).sortValue(sortKey).build();
+        
+        return Uni.createFrom().completionStage(() -> counterModelTable.getItem(key))
+                .onItem().transformToUni(counterDB -> {
+                    if (counterDB == null) {
+                        CounterDB newCounter = new CounterDB();
+                        newCounter.setCount(value);
+                        newCounter.setEventName(event);
+                        newCounter.setUserEmail(sortKey);
+                        return Uni.createFrom().completionStage(() -> counterModelTable.putItem(newCounter));
+                    } else {
+                        counterDB.setCount(value);
+                        return Uni.createFrom().completionStage(() -> counterModelTable.updateItem(counterDB));
+                    }
+                })
+                .onItem().transformToUni(v -> Uni.createFrom().voidItem());
     }
 }
