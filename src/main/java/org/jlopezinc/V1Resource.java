@@ -102,7 +102,7 @@ public class V1Resource {
     }
 
     @PUT
-    @Path("/{event}/{email}/metadata")
+    @Path("/{event}/{email}")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
     @PermitAll

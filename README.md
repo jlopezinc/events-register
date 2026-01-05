@@ -86,7 +86,7 @@ curl -X POST 'http://localhost:8080/v1/ttamigosnatal2023/jlopez.inc@gmail.com/se
 Updates user data including personal details, vehicle information, guests, payment, and comments. This endpoint is intended for frontend applications. All fields except email and event name can be updated.
 
 ```shell
-curl -X PUT 'http://localhost:8080/v1/ttamigosnatal2023/test@example.com/metadata' \
+curl -X PUT 'http://localhost:8080/v1/ttamigosnatal2023/test@example.com' \
 -H 'x-api-key:7KVjU7bQmy' \
 -H 'content-type:application/json' \
 -d '{
