@@ -401,7 +401,9 @@ public class EventV1Service {
 
                     UserMetadataModel metadata = userModel.getMetadata();
                     String existingComment = metadata.getComment();
-                    List<String> updatedFields = new ArrayList<>();
+                    // Track fields that should trigger PUT audit trail entries
+                    // Note: comment changes have their own COMMENT_UPDATED entries and should not trigger PUT entries
+                    List<String> trackedFieldsChanged = new ArrayList<>();
                     
                     // Get the incoming metadata from the request
                     UserMetadataModel incomingMetadata = updateRequest.getMetadata();
@@ -412,7 +414,7 @@ public class EventV1Service {
                     // Update metadata fields if provided
                     if (incomingMetadata.getPeople() != null && !incomingMetadata.getPeople().isEmpty()) {
                         updatePeopleInMetadata(metadata, updateRequest);
-                        updatedFields.add("people");
+                        trackedFieldsChanged.add("people");
                     }
                     
                     // Update phone number in metadata (not on driver object to avoid duplication)
@@ -422,12 +424,12 @@ public class EventV1Service {
                         if (metadata.getPeople() != null && !metadata.getPeople().isEmpty()) {
                             metadata.getPeople().get(0).setPhoneNumber(incomingMetadata.getPhoneNumber());
                         }
-                        updatedFields.add("phoneNumber");
+                        trackedFieldsChanged.add("phoneNumber");
                     }
                     
                     if (incomingMetadata.getVehicle() != null) {
                         updateVehicleInMetadata(metadata, updateRequest);
-                        updatedFields.add("vehicle");
+                        trackedFieldsChanged.add("vehicle");
                     }
                     
                     PaymentInfo incomingPaymentInfo = incomingMetadata.getPaymentInfo();
@@ -438,10 +440,11 @@ public class EventV1Service {
                             metadata.setPaymentInfo(paymentInfo);
                         }
                         paymentInfo.setPaymentFile(incomingPaymentInfo.getPaymentFile());
-                        updatedFields.add("paymentFile");
+                        trackedFieldsChanged.add("paymentFile");
                     }
                     
                     // Handle comment with history tracking
+                    // Comment changes generate their own COMMENT_UPDATED audit entry and do not trigger PUT entries
                     String newComment = incomingMetadata.getComment();
                     // Check if comments are different (handling null cases)
                     boolean commentsAreDifferent = (newComment == null && existingComment != null) ||
@@ -466,26 +469,28 @@ public class EventV1Service {
                         
                         // Update the comment with the new value (including null to clear it)
                         metadata.setComment(newComment);
-                        updatedFields.add("comment");
+                        // Note: comment is intentionally NOT added to trackedFieldsChanged
                     }
                     
                     // Update vehicleType if provided
                     if (updateRequest.getVehicleType() != null) {
                         String vehicleType = normalizeVehicleType(updateRequest.getVehicleType());
                         userModel.setVehicleType(vehicleType);
-                        updatedFields.add("vehicleType");
+                        trackedFieldsChanged.add("vehicleType");
                     }
                     
                     // Update paid status if different from current value
                     // Note: Both fields are primitives, so we can compare directly
                     if (updateRequest.isPaid() != userModel.isPaid()) {
                         userModel.setPaid(updateRequest.isPaid());
-                        updatedFields.add("paid");
+                        trackedFieldsChanged.add("paid");
                     }
                     
-                    // Add change history entry if any fields were updated
-                    if (!updatedFields.isEmpty()) {
-                        String fieldsStr = String.join(", ", updatedFields);
+                    // Add PUT audit trail entry only if tracked fields changed
+                    // Tracked fields: people, phoneNumber, vehicle, paymentFile, vehicleType, paid
+                    // Comment changes have their own COMMENT_UPDATED entries and do not trigger PUT entries
+                    if (!trackedFieldsChanged.isEmpty()) {
+                        String fieldsStr = String.join(", ", trackedFieldsChanged);
                         addChangeHistoryEntry(metadata, "USER_UPDATED", 
                             "User data updated via PUT endpoint. Fields changed: " + fieldsStr);
                     }
