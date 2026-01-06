@@ -41,6 +41,8 @@ public class EventV1Service {
     static final String PAID_COUNTER = "paidCounter";
 
     static final String TOTAL_PARTICIPANTS_COUNTER = "totalParticipants";
+    static final String PARTICIPANTS_CHECKED_IN_COUNTER = "participantsCheckedIn";
+    static final String PARTICIPANTS_NOT_CHECKED_IN_COUNTER = "participantsNotCheckedIn";
 
     private DynamoDbAsyncTable<UserModelDB> userModelTable;
     private DynamoDbAsyncTable<CounterDB> counterModelTable;
@@ -221,6 +223,8 @@ public class EventV1Service {
         CompletableFuture<CounterDB> paidMotorcycleKey = counterModelTable.getItem(Key.builder().partitionValue(event).sortValue(PAID_COUNTER + "motorcycle").build());
         CompletableFuture<CounterDB> paidQuadKey = counterModelTable.getItem(Key.builder().partitionValue(event).sortValue(PAID_COUNTER + "quad").build());
         CompletableFuture<CounterDB> totalParticipantsKey = counterModelTable.getItem(Key.builder().partitionValue(event).sortValue(TOTAL_PARTICIPANTS_COUNTER).build());
+        CompletableFuture<CounterDB> participantsCheckedInKey = counterModelTable.getItem(Key.builder().partitionValue(event).sortValue(PARTICIPANTS_CHECKED_IN_COUNTER).build());
+        CompletableFuture<CounterDB> participantsNotCheckedInKey = counterModelTable.getItem(Key.builder().partitionValue(event).sortValue(PARTICIPANTS_NOT_CHECKED_IN_COUNTER).build());
 
         return Uni.combine()
                 .all().unis(
@@ -235,7 +239,9 @@ public class EventV1Service {
                         Uni.createFrom().completionStage(paidCarKey),
                         Uni.createFrom().completionStage(paidMotorcycleKey),
                         Uni.createFrom().completionStage(paidQuadKey),
-                        Uni.createFrom().completionStage(totalParticipantsKey))
+                        Uni.createFrom().completionStage(totalParticipantsKey),
+                        Uni.createFrom().completionStage(participantsCheckedInKey),
+                        Uni.createFrom().completionStage(participantsNotCheckedInKey))
                 .combinedWith(responses -> {
                             CountersModel countersModel = new CountersModel();
                             CounterDB totalUser = (CounterDB) responses.get(0);
@@ -250,6 +256,8 @@ public class EventV1Service {
                             CounterDB paidMotorbike = (CounterDB) responses.get(9);
                             CounterDB paidQuad = (CounterDB) responses.get(10);
                             CounterDB totalParticipants = (CounterDB) responses.get(11);
+                            CounterDB participantsCheckedIn = (CounterDB) responses.get(12);
+                            CounterDB participantsNotCheckedIn = (CounterDB) responses.get(13);
 
                             countersModel.setTotal(totalUser != null ? totalUser.getCount() : 0);
                             countersModel.setTotalCar(totalCar != null ? totalCar.getCount() : 0);
@@ -263,6 +271,8 @@ public class EventV1Service {
                             countersModel.setPaidMotorcycle(paidMotorbike != null ? paidMotorbike.getCount() : 0);
                             countersModel.setPaidQuad(paidQuad != null ? paidQuad.getCount() : 0);
                             countersModel.setTotalParticipants(totalParticipants != null ? totalParticipants.getCount() : 0);
+                            countersModel.setParticipantsCheckedIn(participantsCheckedIn != null ? participantsCheckedIn.getCount() : 0);
+                            countersModel.setParticipantsNotCheckedIn(participantsNotCheckedIn != null ? participantsNotCheckedIn.getCount() : 0);
                             return countersModel;
                         }
                 );
@@ -313,9 +323,15 @@ public class EventV1Service {
                         "User checked in by " + who);
                     
                     UserModelDB userModelDB = userModelTransform(userModel);
+                    
+                    // Calculate participant count
+                    int participantCount = userModel.getMetadata().getPeople() != null ? 
+                        userModel.getMetadata().getPeople().size() : 1;
 
                     return Uni.createFrom().completionStage(() -> userModelTable.updateItem(userModelDB))
-                            .call(() -> incrementOrDecrementCheckInCounter(userModelDB, true));
+                            .call(() -> incrementOrDecrementCheckInCounter(userModelDB, true))
+                            .call(() -> incrementOrDecrementCounter(event, PARTICIPANTS_CHECKED_IN_COUNTER, true, participantCount))
+                            .call(() -> incrementOrDecrementCounter(event, PARTICIPANTS_NOT_CHECKED_IN_COUNTER, false, participantCount));
                 });
     }
 
@@ -342,9 +358,15 @@ public class EventV1Service {
                         "Check-in cancelled by " + who);
                     
                     UserModelDB userModelDB = userModelTransform(userModel);
+                    
+                    // Calculate participant count
+                    int participantCount = userModel.getMetadata().getPeople() != null ? 
+                        userModel.getMetadata().getPeople().size() : 1;
 
                     return Uni.createFrom().completionStage(() -> userModelTable.updateItem(userModelDB))
-                            .call(() -> incrementOrDecrementCheckInCounter(userModelDB, false));
+                            .call(() -> incrementOrDecrementCheckInCounter(userModelDB, false))
+                            .call(() -> incrementOrDecrementCounter(event, PARTICIPANTS_CHECKED_IN_COUNTER, false, participantCount))
+                            .call(() -> incrementOrDecrementCounter(event, PARTICIPANTS_NOT_CHECKED_IN_COUNTER, true, participantCount));
                 });
     }
     public Uni<Void> register(String event, String body) {
@@ -529,6 +551,10 @@ public class EventV1Service {
                         return Uni.createFrom().item(userModel);
                     }
                     
+                    // Track old participant count for counter adjustment
+                    int oldParticipantCount = metadata.getPeople() != null ? metadata.getPeople().size() : 1;
+                    int newParticipantCount = oldParticipantCount;
+                    
                     // Update metadata fields if provided, capturing old values
                     if (incomingMetadata.getPeople() != null && !incomingMetadata.getPeople().isEmpty()) {
                         String oldValue = formatPeopleForAudit(metadata.getPeople());
@@ -537,6 +563,8 @@ public class EventV1Service {
                         if (!oldValue.equals(newValue)) {
                             fieldChanges.add("people: " + oldValue + " -> " + newValue);
                         }
+                        // Update participant count after people update
+                        newParticipantCount = metadata.getPeople() != null ? metadata.getPeople().size() : 1;
                     }
                     
                     // Update phone number in metadata (not on driver object to avoid duplication)
@@ -637,6 +665,27 @@ public class EventV1Service {
                     }
 
                     UserModelDB userModelDB = userModelTransform(userModel);
+                    
+                    // Calculate participant count difference
+                    int participantDiff = newParticipantCount - oldParticipantCount;
+                    
+                    // Update counters if participant count changed
+                    if (participantDiff != 0) {
+                        if (userModel.isCheckedIn()) {
+                            // User is checked in - adjust participantsCheckedIn counter
+                            return Uni.createFrom().completionStage(() -> userModelTable.updateItem(userModelDB))
+                                    .call(() -> incrementOrDecrementCounter(event, PARTICIPANTS_CHECKED_IN_COUNTER, 
+                                            participantDiff > 0, Math.abs(participantDiff)))
+                                    .onItem().transform(userModelDbTransform);
+                        } else {
+                            // User is NOT checked in - adjust participantsNotCheckedIn counter
+                            return Uni.createFrom().completionStage(() -> userModelTable.updateItem(userModelDB))
+                                    .call(() -> incrementOrDecrementCounter(event, PARTICIPANTS_NOT_CHECKED_IN_COUNTER, 
+                                            participantDiff > 0, Math.abs(participantDiff)))
+                                    .onItem().transform(userModelDbTransform);
+                        }
+                    }
+                    
                     return Uni.createFrom().completionStage(() -> userModelTable.updateItem(userModelDB))
                             .onItem().transform(userModelDbTransform);
                 });
@@ -768,12 +817,15 @@ public class EventV1Service {
         } catch (JsonProcessingException e) {
             throw new RuntimeException(e);
         }
+        
+        int participantCount = userMetadataModel.getPeople() != null ? userMetadataModel.getPeople().size() : 1;
 
         return Uni.combine()
                 .all().unis(incrementOrDecrementCounter(userModelDB.getEventName(), sortKey, increment),
                         incrementOrDecrementCounter(userModelDB.getEventName(), countByType, increment),
-                        incrementOrDecrementCounter(userModelDB.getEventName(), TOTAL_PARTICIPANTS_COUNTER, increment, userMetadataModel.getPeople().size()))
-                .combinedWith((unused, unused2, unused3) -> null);
+                        incrementOrDecrementCounter(userModelDB.getEventName(), TOTAL_PARTICIPANTS_COUNTER, increment, participantCount),
+                        incrementOrDecrementCounter(userModelDB.getEventName(), PARTICIPANTS_NOT_CHECKED_IN_COUNTER, increment, participantCount))
+                .combinedWith((unused, unused2, unused3, unused4) -> null);
     }
     private Uni<Void> incrementOrDecrementPaidCounter(UserModelDB userModelDB, boolean increment) {
         return Uni.combine()
@@ -932,7 +984,9 @@ public class EventV1Service {
                                     page.items().stream()
                                             .filter(user -> user.getUserEmail() != null && !user.getUserEmail().startsWith("total") 
                                                     && !user.getUserEmail().startsWith(CHECK_IN_COUNTER) 
-                                                    && !user.getUserEmail().startsWith(PAID_COUNTER))
+                                                    && !user.getUserEmail().startsWith(PAID_COUNTER)
+                                                    && !user.getUserEmail().equals(PARTICIPANTS_CHECKED_IN_COUNTER)
+                                                    && !user.getUserEmail().equals(PARTICIPANTS_NOT_CHECKED_IN_COUNTER))
                                             .forEach(allUsers::add);
                                 })
                                 .whenComplete((v, error) -> {
@@ -957,6 +1011,8 @@ public class EventV1Service {
                                 long paidMotorcycle = 0;
                                 long paidQuad = 0;
                                 long totalParticipants = 0;
+                                long participantsCheckedIn = 0;
+                                long participantsNotCheckedIn = 0;
                                 
                                 for (UserModelDB user : users) {
                                     String vehicleType = user.getVehicleType();
@@ -985,10 +1041,24 @@ public class EventV1Service {
                                     // Count total participants (driver + guests)
                                     try {
                                         UserMetadataModel metadata = objectMapper.readValue(user.getMetadata(), UserMetadataModel.class);
-                                        totalParticipants += metadata.getPeople() != null ? metadata.getPeople().size() : 1;
+                                        int participantCount = metadata.getPeople() != null ? metadata.getPeople().size() : 1;
+                                        totalParticipants += participantCount;
+                                        
+                                        // Count checked-in vs not-checked-in participants
+                                        if (user.isCheckedIn()) {
+                                            participantsCheckedIn += participantCount;
+                                        } else {
+                                            participantsNotCheckedIn += participantCount;
+                                        }
                                     } catch (JsonProcessingException e) {
                                         Log.error("Error parsing user metadata for participant count", e);
                                         totalParticipants++; // At least count the driver
+                                        // Default to not checked in if we can't parse metadata
+                                        if (user.isCheckedIn()) {
+                                            participantsCheckedIn++;
+                                        } else {
+                                            participantsNotCheckedIn++;
+                                        }
                                     }
                                 }
                                 
@@ -1009,6 +1079,8 @@ public class EventV1Service {
                                 updates.add(setCounter(event, PAID_COUNTER + "motorcycle", paidMotorcycle));
                                 updates.add(setCounter(event, PAID_COUNTER + "quad", paidQuad));
                                 updates.add(setCounter(event, TOTAL_PARTICIPANTS_COUNTER, totalParticipants));
+                                updates.add(setCounter(event, PARTICIPANTS_CHECKED_IN_COUNTER, participantsCheckedIn));
+                                updates.add(setCounter(event, PARTICIPANTS_NOT_CHECKED_IN_COUNTER, participantsNotCheckedIn));
                                 
                                 return Uni.combine().all().unis(updates)
                                         .combinedWith(results -> null)
