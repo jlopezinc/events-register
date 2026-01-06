@@ -16,4 +16,6 @@ public class CountersModel {
     private long paidCar;
     private long paidMotorcycle;
     private long paidQuad;
+    private long participantsCheckedIn;
+    private long participantsNotCheckedIn;
 }
