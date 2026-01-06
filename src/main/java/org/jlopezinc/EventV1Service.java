@@ -114,6 +114,69 @@ public class EventV1Service {
             .replace("\r", "\\r")   // Carriage return
             .replace("\t", "\\t");  // Tab
     }
+    
+    /**
+     * Formats a people list for audit trail descriptions.
+     * 
+     * @param people The people list to format (can be null)
+     * @return A formatted string representation
+     */
+    private String formatPeopleForAudit(List<UserMetadataModel.People> people) {
+        if (people == null || people.isEmpty()) {
+            return "(empty)";
+        }
+        
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < people.size(); i++) {
+            UserMetadataModel.People person = people.get(i);
+            if (i > 0) {
+                sb.append(", ");
+            }
+            sb.append(person.getType()).append(": ");
+            sb.append(sanitizeForDescription(person.getName()));
+            if (person.getCc() != null) {
+                sb.append(" (CC: ").append(sanitizeForDescription(person.getCc())).append(")");
+            }
+        }
+        return sb.toString();
+    }
+    
+    /**
+     * Formats a vehicle for audit trail descriptions.
+     * 
+     * @param vehicle The vehicle to format (can be null)
+     * @return A formatted string representation
+     */
+    private String formatVehicleForAudit(UserMetadataModel.Vehicle vehicle) {
+        if (vehicle == null) {
+            return "(empty)";
+        }
+        
+        StringBuilder sb = new StringBuilder();
+        if (vehicle.getPlate() != null) {
+            sb.append("plate: ").append(sanitizeForDescription(vehicle.getPlate()));
+        }
+        if (vehicle.getMake() != null) {
+            if (sb.length() > 0) sb.append(", ");
+            sb.append("make: ").append(sanitizeForDescription(vehicle.getMake()));
+        }
+        if (vehicle.getModel() != null) {
+            if (sb.length() > 0) sb.append(", ");
+            sb.append("model: ").append(sanitizeForDescription(vehicle.getModel()));
+        }
+        
+        return sb.length() > 0 ? sb.toString() : "(empty)";
+    }
+    
+    /**
+     * Formats a boolean for audit trail descriptions.
+     * 
+     * @param value The boolean value
+     * @return A formatted string representation
+     */
+    private String formatBooleanForAudit(boolean value) {
+        return value ? "true" : "false";
+    }
 
     public Uni<UserModel> getByEventAndEmail (String event, String email){
         Key partitioKey = Key.builder().partitionValue(event).sortValue(email).build();
@@ -307,8 +370,64 @@ public class EventV1Service {
                                         newMetadata.setChangeHistory(existingMetadata.getChangeHistory());
                                     }
                                     
-                                    // Add change history entry for re-registration
-                                    addChangeHistoryEntry(newMetadata, "USER_REGISTERED", "User re-registered with updated information via webhook");
+                                    // Track field changes with old and new values
+                                    List<String> fieldChanges = new ArrayList<>();
+                                    
+                                    // Compare people
+                                    String oldPeople = formatPeopleForAudit(existingMetadata.getPeople());
+                                    String newPeople = formatPeopleForAudit(newMetadata.getPeople());
+                                    if (!oldPeople.equals(newPeople)) {
+                                        fieldChanges.add("people changed from \"" + oldPeople + "\" to \"" + newPeople + "\"");
+                                    }
+                                    
+                                    // Compare phoneNumber
+                                    String oldPhone = sanitizeForDescription(existingMetadata.getPhoneNumber());
+                                    String newPhone = sanitizeForDescription(newMetadata.getPhoneNumber());
+                                    if (!oldPhone.equals(newPhone)) {
+                                        fieldChanges.add("phoneNumber changed from \"" + oldPhone + "\" to \"" + newPhone + "\"");
+                                    }
+                                    
+                                    // Compare vehicle
+                                    String oldVehicle = formatVehicleForAudit(existingMetadata.getVehicle());
+                                    String newVehicle = formatVehicleForAudit(newMetadata.getVehicle());
+                                    if (!oldVehicle.equals(newVehicle)) {
+                                        fieldChanges.add("vehicle changed from \"" + oldVehicle + "\" to \"" + newVehicle + "\"");
+                                    }
+                                    
+                                    // Compare paymentFile
+                                    String oldPaymentFile = (existingMetadata.getPaymentInfo() != null && existingMetadata.getPaymentInfo().getPaymentFile() != null)
+                                        ? sanitizeForDescription(existingMetadata.getPaymentInfo().getPaymentFile())
+                                        : "(empty)";
+                                    String newPaymentFile = (newMetadata.getPaymentInfo() != null && newMetadata.getPaymentInfo().getPaymentFile() != null)
+                                        ? sanitizeForDescription(newMetadata.getPaymentInfo().getPaymentFile())
+                                        : "(empty)";
+                                    if (!oldPaymentFile.equals(newPaymentFile)) {
+                                        fieldChanges.add("paymentFile changed from \"" + oldPaymentFile + "\" to \"" + newPaymentFile + "\"");
+                                    }
+                                    
+                                    // Compare vehicleType
+                                    String oldVehicleType = sanitizeForDescription(existingUser.getVehicleType());
+                                    String newVehicleType = sanitizeForDescription(userModelDB.getVehicleType());
+                                    if (!oldVehicleType.equals(newVehicleType)) {
+                                        fieldChanges.add("vehicleType changed from \"" + oldVehicleType + "\" to \"" + newVehicleType + "\"");
+                                    }
+                                    
+                                    // Compare paid status
+                                    if (existingUser.isPaid() != userModelDB.isPaid()) {
+                                        String oldPaid = formatBooleanForAudit(existingUser.isPaid());
+                                        String newPaid = formatBooleanForAudit(userModelDB.isPaid());
+                                        fieldChanges.add("paid changed from \"" + oldPaid + "\" to \"" + newPaid + "\"");
+                                    }
+                                    
+                                    // Add change history entry for re-registration with field changes
+                                    if (!fieldChanges.isEmpty()) {
+                                        String changesStr = String.join("; ", fieldChanges);
+                                        addChangeHistoryEntry(newMetadata, "USER_REGISTERED", 
+                                            "User re-registered via webhook. " + changesStr);
+                                    } else {
+                                        addChangeHistoryEntry(newMetadata, "USER_REGISTERED", 
+                                            "User re-registered via webhook (no tracked fields changed)");
+                                    }
                                     
                                     // Handle comments history (backward compatibility)
                                     String existingComment = existingMetadata.getComment();
@@ -401,9 +520,9 @@ public class EventV1Service {
 
                     UserMetadataModel metadata = userModel.getMetadata();
                     String existingComment = metadata.getComment();
-                    // Track fields that should trigger PUT audit trail entries
+                    // Track field changes with old and new values
                     // Note: comment changes have their own COMMENT_UPDATED entries and should not trigger PUT entries
-                    List<String> trackedFieldsChanged = new ArrayList<>();
+                    List<String> fieldChanges = new ArrayList<>();
                     
                     // Get the incoming metadata from the request
                     UserMetadataModel incomingMetadata = updateRequest.getMetadata();
@@ -411,36 +530,46 @@ public class EventV1Service {
                         return Uni.createFrom().item(userModel);
                     }
                     
-                    // Update metadata fields if provided
+                    // Update metadata fields if provided, capturing old values
                     if (incomingMetadata.getPeople() != null && !incomingMetadata.getPeople().isEmpty()) {
+                        String oldValue = formatPeopleForAudit(metadata.getPeople());
                         updatePeopleInMetadata(metadata, updateRequest);
-                        trackedFieldsChanged.add("people");
+                        String newValue = formatPeopleForAudit(metadata.getPeople());
+                        fieldChanges.add("people changed from \"" + oldValue + "\" to \"" + newValue + "\"");
                     }
                     
                     // Update phone number in metadata (not on driver object to avoid duplication)
                     if (incomingMetadata.getPhoneNumber() != null) {
+                        String oldValue = sanitizeForDescription(metadata.getPhoneNumber());
                         metadata.setPhoneNumber(incomingMetadata.getPhoneNumber());
                         // Also update on driver if people exist
                         if (metadata.getPeople() != null && !metadata.getPeople().isEmpty()) {
                             metadata.getPeople().get(0).setPhoneNumber(incomingMetadata.getPhoneNumber());
                         }
-                        trackedFieldsChanged.add("phoneNumber");
+                        String newValue = sanitizeForDescription(incomingMetadata.getPhoneNumber());
+                        fieldChanges.add("phoneNumber changed from \"" + oldValue + "\" to \"" + newValue + "\"");
                     }
                     
                     if (incomingMetadata.getVehicle() != null) {
+                        String oldValue = formatVehicleForAudit(metadata.getVehicle());
                         updateVehicleInMetadata(metadata, updateRequest);
-                        trackedFieldsChanged.add("vehicle");
+                        String newValue = formatVehicleForAudit(metadata.getVehicle());
+                        fieldChanges.add("vehicle changed from \"" + oldValue + "\" to \"" + newValue + "\"");
                     }
                     
                     PaymentInfo incomingPaymentInfo = incomingMetadata.getPaymentInfo();
                     if (incomingPaymentInfo != null && incomingPaymentInfo.getPaymentFile() != null) {
                         PaymentInfo paymentInfo = metadata.getPaymentInfo();
+                        String oldValue = (paymentInfo != null && paymentInfo.getPaymentFile() != null) 
+                            ? sanitizeForDescription(paymentInfo.getPaymentFile()) 
+                            : "(empty)";
                         if (paymentInfo == null) {
                             paymentInfo = new PaymentInfo();
                             metadata.setPaymentInfo(paymentInfo);
                         }
                         paymentInfo.setPaymentFile(incomingPaymentInfo.getPaymentFile());
-                        trackedFieldsChanged.add("paymentFile");
+                        String newValue = sanitizeForDescription(incomingPaymentInfo.getPaymentFile());
+                        fieldChanges.add("paymentFile changed from \"" + oldValue + "\" to \"" + newValue + "\"");
                     }
                     
                     // Handle comment with history tracking
@@ -469,30 +598,34 @@ public class EventV1Service {
                         
                         // Update the comment with the new value (including null to clear it)
                         metadata.setComment(newComment);
-                        // Note: comment is intentionally NOT added to trackedFieldsChanged
+                        // Note: comment is intentionally NOT added to fieldChanges
                     }
                     
                     // Update vehicleType if provided
                     if (updateRequest.getVehicleType() != null) {
+                        String oldValue = sanitizeForDescription(userModel.getVehicleType());
                         String vehicleType = normalizeVehicleType(updateRequest.getVehicleType());
                         userModel.setVehicleType(vehicleType);
-                        trackedFieldsChanged.add("vehicleType");
+                        String newValue = sanitizeForDescription(vehicleType);
+                        fieldChanges.add("vehicleType changed from \"" + oldValue + "\" to \"" + newValue + "\"");
                     }
                     
                     // Update paid status if different from current value
                     // Note: Both fields are primitives, so we can compare directly
                     if (updateRequest.isPaid() != userModel.isPaid()) {
+                        String oldValue = formatBooleanForAudit(userModel.isPaid());
                         userModel.setPaid(updateRequest.isPaid());
-                        trackedFieldsChanged.add("paid");
+                        String newValue = formatBooleanForAudit(updateRequest.isPaid());
+                        fieldChanges.add("paid changed from \"" + oldValue + "\" to \"" + newValue + "\"");
                     }
                     
                     // Add PUT audit trail entry only if tracked fields changed
                     // Tracked fields: people, phoneNumber, vehicle, paymentFile, vehicleType, paid
                     // Comment changes have their own COMMENT_UPDATED entries and do not trigger PUT entries
-                    if (!trackedFieldsChanged.isEmpty()) {
-                        String fieldsStr = String.join(", ", trackedFieldsChanged);
+                    if (!fieldChanges.isEmpty()) {
+                        String changesStr = String.join("; ", fieldChanges);
                         addChangeHistoryEntry(metadata, "USER_UPDATED", 
-                            "User data updated via PUT endpoint. Fields changed: " + fieldsStr);
+                            "User data updated via PUT endpoint. " + changesStr);
                     }
 
                     UserModelDB userModelDB = userModelTransform(userModel);
