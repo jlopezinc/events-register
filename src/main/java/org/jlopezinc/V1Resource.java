@@ -138,4 +138,11 @@ public class V1Resource {
         return eventV1Service.reconcileCounters(eventId);
     }
 
+    @POST
+    @Path("/reconcile-counters/{eventId}")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Uni<ReconcileCountersResponse> reconcileCountersWithCognito(@PathParam("eventId") String eventId){
+        return eventV1Service.reconcileCounters(eventId);
+    }
+
 }
