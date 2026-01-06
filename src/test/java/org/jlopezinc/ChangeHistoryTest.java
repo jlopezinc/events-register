@@ -373,16 +373,16 @@ class ChangeHistoryTest {
     @Test
     void testPutAuditTrail_TrackedFieldChanged_AuditEntryCreated() {
         // Scenario: PUT request changes at least one tracked field
-        // Expected: USER_UPDATED audit entry is created with correct field list
+        // Expected: USER_UPDATED audit entry is created with old and new values
         
         UserMetadataModel metadata = new UserMetadataModel();
         metadata.setChangeHistory(new ArrayList<>());
         
-        // Simulate updating phoneNumber (a tracked field)
+        // Simulate updating phoneNumber (a tracked field) with old and new values
         metadata.getChangeHistory().add(new ChangeHistoryEntry(
             "2026-01-06T15:30:00.000Z",
             "USER_UPDATED",
-            "User data updated via PUT endpoint. Fields changed: phoneNumber"
+            "User data updated via PUT endpoint. phoneNumber changed from \"(empty)\" to \"+351123456789\""
         ));
         
         assertEquals(1, metadata.getChangeHistory().size(), 
@@ -390,22 +390,26 @@ class ChangeHistoryTest {
         assertEquals("USER_UPDATED", metadata.getChangeHistory().get(0).getAction(),
             "Audit entry should be USER_UPDATED");
         assertTrue(metadata.getChangeHistory().get(0).getDescription().contains("phoneNumber"),
-            "Audit entry should list phoneNumber as changed");
+            "Audit entry should mention phoneNumber");
+        assertTrue(metadata.getChangeHistory().get(0).getDescription().contains("changed from"),
+            "Audit entry should show old value");
+        assertTrue(metadata.getChangeHistory().get(0).getDescription().contains("to"),
+            "Audit entry should show new value");
     }
 
     @Test
     void testPutAuditTrail_MultipleTrackedFieldsChanged_AllListedInAudit() {
         // Scenario: PUT request changes multiple tracked fields
-        // Expected: Single USER_UPDATED audit entry lists all changed fields
+        // Expected: Single USER_UPDATED audit entry lists all changed fields with old/new values
         
         UserMetadataModel metadata = new UserMetadataModel();
         metadata.setChangeHistory(new ArrayList<>());
         
-        // Simulate updating multiple tracked fields: phoneNumber, vehicle, paid
+        // Simulate updating multiple tracked fields with old and new values
         metadata.getChangeHistory().add(new ChangeHistoryEntry(
             "2026-01-06T15:30:00.000Z",
             "USER_UPDATED",
-            "User data updated via PUT endpoint. Fields changed: phoneNumber, vehicle, paid"
+            "User data updated via PUT endpoint. phoneNumber changed from \"(empty)\" to \"+351123456789\"; vehicle changed from \"(empty)\" to \"plate: ABC-123\"; paid changed from \"false\" to \"true\""
         ));
         
         assertEquals(1, metadata.getChangeHistory().size(), 
@@ -414,13 +418,17 @@ class ChangeHistoryTest {
         ChangeHistoryEntry entry = metadata.getChangeHistory().get(0);
         assertEquals("USER_UPDATED", entry.getAction());
         
-        // Verify all changed fields are mentioned
+        // Verify all changed fields are mentioned with old/new values
         assertTrue(entry.getDescription().contains("phoneNumber"),
             "phoneNumber should be in field list");
         assertTrue(entry.getDescription().contains("vehicle"),
             "vehicle should be in field list");
         assertTrue(entry.getDescription().contains("paid"),
             "paid should be in field list");
+        assertTrue(entry.getDescription().contains("changed from"),
+            "Should show old values");
+        assertTrue(entry.getDescription().contains("to"),
+            "Should show new values");
     }
 
     @Test
@@ -540,16 +548,16 @@ class ChangeHistoryTest {
     @Test
     void testPutAuditTrail_EdgeCase_AllTrackedFieldsChanged() {
         // Edge case: All tracked fields change at once
-        // Expected: Single USER_UPDATED entry listing all fields
+        // Expected: Single USER_UPDATED entry listing all fields with old/new values
         
         UserMetadataModel metadata = new UserMetadataModel();
         metadata.setChangeHistory(new ArrayList<>());
         
-        // All tracked fields changed
+        // All tracked fields changed with old/new values
         metadata.getChangeHistory().add(new ChangeHistoryEntry(
             "2026-01-06T15:30:00.000Z",
             "USER_UPDATED",
-            "User data updated via PUT endpoint. Fields changed: people, phoneNumber, vehicle, paymentFile, vehicleType, paid"
+            "User data updated via PUT endpoint. people changed from \"(empty)\" to \"driver: John\"; phoneNumber changed from \"(empty)\" to \"+351123456789\"; vehicle changed from \"(empty)\" to \"plate: ABC-123\"; paymentFile changed from \"(empty)\" to \"receipt.pdf\"; vehicleType changed from \"(empty)\" to \"car\"; paid changed from \"false\" to \"true\""
         ));
         
         assertEquals(1, metadata.getChangeHistory().size());
@@ -562,6 +570,10 @@ class ChangeHistoryTest {
         assertTrue(entry.getDescription().contains("paymentFile"));
         assertTrue(entry.getDescription().contains("vehicleType"));
         assertTrue(entry.getDescription().contains("paid"));
+        
+        // Verify old/new value format
+        assertTrue(entry.getDescription().contains("changed from"));
+        assertTrue(entry.getDescription().contains("to"));
         
         // But comment should NOT be mentioned
         assertFalse(entry.getDescription().contains("comment"),
