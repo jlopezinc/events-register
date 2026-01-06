@@ -16,7 +16,21 @@ public class UserMetadataModel {
     private String rawWebhook;
     private PaymentInfo paymentInfo;
     private String comment;
+    /**
+     * @deprecated Use changeHistory instead. This field is maintained for backward compatibility.
+     */
+    @Deprecated
     private List<String> commentsHistory;
+    
+    /**
+     * Unified change history tracking all modifications to this user's registration.
+     * Each entry contains a timestamp (ISO 8601), action type, and human-friendly description.
+     * Entries are stored in chronological order (oldest first).
+     * 
+     * This replaces the legacy commentsHistory field and provides a comprehensive audit trail
+     * for all user-level mutations including registrations, updates, payments, check-ins, etc.
+     */
+    private List<ChangeHistoryEntry> changeHistory;
 
     @Data
     public static class Vehicle{

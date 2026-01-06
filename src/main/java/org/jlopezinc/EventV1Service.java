@@ -10,6 +10,7 @@ import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.core.NoContentException;
 import org.jlopezinc.dynamodb.CounterDB;
 import org.jlopezinc.dynamodb.UserModelDB;
+import org.jlopezinc.model.ChangeHistoryEntry;
 import org.jlopezinc.model.CountersModel;
 import org.jlopezinc.model.PaymentInfo;
 import org.jlopezinc.model.ReconcileCountersResponse;
@@ -30,6 +31,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
+import java.time.Instant;
 
 @ApplicationScoped
 public class EventV1Service {
@@ -53,6 +55,64 @@ public class EventV1Service {
     EventV1Service (DynamoDbEnhancedAsyncClient dynamoDbEnhancedAsyncClient){
         userModelTable = dynamoDbEnhancedAsyncClient.table(EVENTS_TABLE, TableSchema.fromClass(UserModelDB.class));
         counterModelTable = dynamoDbEnhancedAsyncClient.table(EVENTS_TABLE, TableSchema.fromClass(CounterDB.class));
+    }
+
+    /**
+     * Adds an entry to the change history for a user.
+     * 
+     * This method is the central point for recording all user-level mutations in the audit trail.
+     * It creates a timestamped entry with the action type and a human-friendly description.
+     * 
+     * The change history is maintained in chronological order (oldest first), allowing
+     * administrators to track the complete lifecycle of a user's registration.
+     * 
+     * @param metadata The user metadata to add the change history entry to (must not be null)
+     * @param action The type of action performed (e.g., "USER_REGISTERED", "PAYMENT_ADDED") (must not be null)
+     * @param description A human-friendly description of what changed (must not be null)
+     * @throws IllegalArgumentException if any parameter is null
+     */
+    private void addChangeHistoryEntry(UserMetadataModel metadata, String action, String description) {
+        // Validate input parameters
+        if (metadata == null) {
+            throw new IllegalArgumentException("metadata cannot be null");
+        }
+        if (action == null || action.trim().isEmpty()) {
+            throw new IllegalArgumentException("action cannot be null or empty");
+        }
+        if (description == null || description.trim().isEmpty()) {
+            throw new IllegalArgumentException("description cannot be null or empty");
+        }
+        
+        if (metadata.getChangeHistory() == null) {
+            metadata.setChangeHistory(new ArrayList<>());
+        }
+        
+        // Create ISO 8601 timestamp using thread-safe java.time API
+        String timestamp = Instant.now().toString();
+        
+        ChangeHistoryEntry entry = new ChangeHistoryEntry(timestamp, action, description);
+        metadata.getChangeHistory().add(entry);
+    }
+    
+    /**
+     * Sanitizes a string for safe inclusion in change history descriptions.
+     * Escapes special characters that could cause issues with JSON serialization or log injection.
+     * 
+     * @param text The text to sanitize (can be null)
+     * @return The sanitized text, or "(empty)" if null or blank
+     */
+    private String sanitizeForDescription(String text) {
+        if (text == null || text.isBlank()) {
+            return "(empty)";
+        }
+        
+        // Replace problematic characters
+        return text
+            .replace("\\", "\\\\")  // Backslash
+            .replace("\"", "\\\"")  // Double quote
+            .replace("\n", "\\n")   // Newline
+            .replace("\r", "\\r")   // Carriage return
+            .replace("\t", "\\t");  // Tab
     }
 
     public Uni<UserModel> getByEventAndEmail (String event, String email){
@@ -184,6 +244,11 @@ public class EventV1Service {
                         setByWho(who);
                     }});
                     userModel.setCheckedIn(true);
+                    
+                    // Add change history entry
+                    addChangeHistoryEntry(userModel.getMetadata(), "CHECK_IN_ADDED", 
+                        "User checked in by " + who);
+                    
                     UserModelDB userModelDB = userModelTransform(userModel);
 
                     return Uni.createFrom().completionStage(() -> userModelTable.updateItem(userModelDB))
@@ -208,6 +273,11 @@ public class EventV1Service {
                         setByWho(null);
                     }});
                     userModel.setCheckedIn(false);
+                    
+                    // Add change history entry
+                    addChangeHistoryEntry(userModel.getMetadata(), "CHECK_IN_REMOVED", 
+                        "Check-in cancelled by " + who);
+                    
                     UserModelDB userModelDB = userModelTransform(userModel);
 
                     return Uni.createFrom().completionStage(() -> userModelTable.updateItem(userModelDB))
@@ -226,12 +296,21 @@ public class EventV1Service {
                             // Only increment counter if user doesn't already exist
                             final boolean isNewUser = (existingUser == null);
                             
-                            // If user exists, preserve comment history
+                            // If user exists, preserve comment history and add change history entry
                             if (!isNewUser) {
                                 try {
                                     UserMetadataModel existingMetadata = existingUser.getMetadata();
                                     UserMetadataModel newMetadata = objectMapper.readValue(userModelDB.getMetadata(), UserMetadataModel.class);
                                     
+                                    // Preserve existing change history
+                                    if (existingMetadata.getChangeHistory() != null) {
+                                        newMetadata.setChangeHistory(existingMetadata.getChangeHistory());
+                                    }
+                                    
+                                    // Add change history entry for re-registration
+                                    addChangeHistoryEntry(newMetadata, "USER_REGISTERED", "User re-registered with updated information via webhook");
+                                    
+                                    // Handle comments history (backward compatibility)
                                     String existingComment = existingMetadata.getComment();
                                     String newComment = newMetadata.getComment();
                                     
@@ -248,6 +327,10 @@ public class EventV1Service {
                                         // Add the previous comment to history only if it exists and is not blank
                                         if (StringUtils.isNotBlank(existingComment)) {
                                             newMetadata.getCommentsHistory().add(existingComment);
+                                            // Also add to change history with sanitized comment text
+                                            addChangeHistoryEntry(newMetadata, "COMMENT_UPDATED", 
+                                                "Comment changed from \"" + sanitizeForDescription(existingComment) + 
+                                                "\" to \"" + sanitizeForDescription(newComment) + "\"");
                                         }
                                     } else {
                                         // Preserve existing comments history
@@ -292,6 +375,12 @@ public class EventV1Service {
                         storedPaymentInfo.setPaymentFile(paymentInfo.getPaymentFile());
                     }
                     userModel.getMetadata().setPaymentInfo(storedPaymentInfo);
+                    
+                    // Add change history entry
+                    String amountStr = paymentInfo.getAmount() != null ? paymentInfo.getAmount().toString() : "unknown amount";
+                    String byWho = paymentInfo.getByWho() != null ? paymentInfo.getByWho() : "system";
+                    addChangeHistoryEntry(userModel.getMetadata(), "PAYMENT_ADDED", 
+                        "Payment confirmed: " + amountStr + " by " + byWho);
 
                     return Uni.createFrom().completionStage(() -> userModelTable.putItem(userModelTransform(userModel)))
                             .call(() -> {
@@ -312,6 +401,7 @@ public class EventV1Service {
 
                     UserMetadataModel metadata = userModel.getMetadata();
                     String existingComment = metadata.getComment();
+                    List<String> updatedFields = new ArrayList<>();
                     
                     // Get the incoming metadata from the request
                     UserMetadataModel incomingMetadata = updateRequest.getMetadata();
@@ -322,6 +412,7 @@ public class EventV1Service {
                     // Update metadata fields if provided
                     if (incomingMetadata.getPeople() != null && !incomingMetadata.getPeople().isEmpty()) {
                         updatePeopleInMetadata(metadata, updateRequest);
+                        updatedFields.add("people");
                     }
                     
                     // Update phone number in metadata (not on driver object to avoid duplication)
@@ -331,10 +422,12 @@ public class EventV1Service {
                         if (metadata.getPeople() != null && !metadata.getPeople().isEmpty()) {
                             metadata.getPeople().get(0).setPhoneNumber(incomingMetadata.getPhoneNumber());
                         }
+                        updatedFields.add("phoneNumber");
                     }
                     
                     if (incomingMetadata.getVehicle() != null) {
                         updateVehicleInMetadata(metadata, updateRequest);
+                        updatedFields.add("vehicle");
                     }
                     
                     PaymentInfo incomingPaymentInfo = incomingMetadata.getPaymentInfo();
@@ -345,6 +438,7 @@ public class EventV1Service {
                             metadata.setPaymentInfo(paymentInfo);
                         }
                         paymentInfo.setPaymentFile(incomingPaymentInfo.getPaymentFile());
+                        updatedFields.add("paymentFile");
                     }
                     
                     // Handle comment with history tracking
@@ -363,22 +457,37 @@ public class EventV1Service {
                             
                             // Add the previous comment to history
                             metadata.getCommentsHistory().add(existingComment);
+                            
+                            // Also add to change history with sanitized comment text
+                            addChangeHistoryEntry(metadata, "COMMENT_UPDATED", 
+                                "Comment changed from \"" + sanitizeForDescription(existingComment) + 
+                                "\" to \"" + sanitizeForDescription(newComment) + "\"");
                         }
                         
                         // Update the comment with the new value (including null to clear it)
                         metadata.setComment(newComment);
+                        updatedFields.add("comment");
                     }
                     
                     // Update vehicleType if provided
                     if (updateRequest.getVehicleType() != null) {
                         String vehicleType = normalizeVehicleType(updateRequest.getVehicleType());
                         userModel.setVehicleType(vehicleType);
+                        updatedFields.add("vehicleType");
                     }
                     
                     // Update paid status if different from current value
                     // Note: Both fields are primitives, so we can compare directly
                     if (updateRequest.isPaid() != userModel.isPaid()) {
                         userModel.setPaid(updateRequest.isPaid());
+                        updatedFields.add("paid");
+                    }
+                    
+                    // Add change history entry if any fields were updated
+                    if (!updatedFields.isEmpty()) {
+                        String fieldsStr = String.join(", ", updatedFields);
+                        addChangeHistoryEntry(metadata, "USER_UPDATED", 
+                            "User data updated via PUT endpoint. Fields changed: " + fieldsStr);
                     }
 
                     UserModelDB userModelDB = userModelTransform(userModel);
