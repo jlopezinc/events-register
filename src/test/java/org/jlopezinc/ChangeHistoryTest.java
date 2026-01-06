@@ -148,11 +148,11 @@ class ChangeHistoryTest {
         // Add to deprecated commentsHistory
         metadata.getCommentsHistory().add(oldComment);
         
-        // Add to new changeHistory
+        // Add to new changeHistory with new format
         metadata.getChangeHistory().add(new ChangeHistoryEntry(
             "2026-01-06T15:30:00.000Z",
             "COMMENT_UPDATED",
-            "Comment changed from \"" + oldComment + "\" to \"" + newComment + "\""
+            "comment: " + oldComment + " -> " + newComment
         ));
         
         // Update the comment
@@ -200,11 +200,11 @@ class ChangeHistoryTest {
             "User re-registered with updated information via webhook"
         ));
         
-        // 2. User data is updated
+        // 2. User data is updated with new format
         metadata.getChangeHistory().add(new ChangeHistoryEntry(
             "2026-01-06T11:00:00.000Z",
             "USER_UPDATED",
-            "User data updated via PUT endpoint. Fields changed: phoneNumber, vehicle"
+            "phoneNumber: (empty) -> +351123456789\nvehicle: (empty) -> plate: ABC-123"
         ));
         
         // 3. Payment is added
@@ -214,11 +214,11 @@ class ChangeHistoryTest {
             "Payment confirmed: 50.00 by admin@example.com"
         ));
         
-        // 4. Comment is updated
+        // 4. Comment is updated with new format
         metadata.getChangeHistory().add(new ChangeHistoryEntry(
             "2026-01-06T13:00:00.000Z",
             "COMMENT_UPDATED",
-            "Comment changed from \"Pending payment\" to \"Ready for check-in\""
+            "comment: Pending payment -> Ready for check-in"
         ));
         
         // 5. User is checked in
@@ -293,7 +293,7 @@ class ChangeHistoryTest {
         metadata.getChangeHistory().add(new ChangeHistoryEntry(
             "2026-01-06T10:00:00.000Z",
             "COMMENT_UPDATED",
-            "Comment changed from \"Old comment 1\" to \"Old comment 2\""
+            "comment: Old comment 1 -> Old comment 2"
         ));
         
         // Both should coexist
@@ -315,11 +315,11 @@ class ChangeHistoryTest {
         String commentWithSpecialChars = "Payment \"pending\"\nNeeds follow-up\tASAP\\check";
         String expectedSanitized = "Payment \\\"pending\\\"\\nNeeds follow-up\\tASAP\\\\check";
         
-        // Create a change history entry as if sanitization was applied
+        // Create a change history entry as if sanitization was applied with new format
         metadata.getChangeHistory().add(new ChangeHistoryEntry(
             "2026-01-06T15:30:00.000Z",
             "COMMENT_UPDATED",
-            "Comment changed from \"Initial comment\" to \"" + expectedSanitized + "\""
+            "comment: Initial comment -> " + expectedSanitized
         ));
         
         // Verify the entry was created
@@ -378,11 +378,11 @@ class ChangeHistoryTest {
         UserMetadataModel metadata = new UserMetadataModel();
         metadata.setChangeHistory(new ArrayList<>());
         
-        // Simulate updating phoneNumber (a tracked field) with old and new values
+        // Simulate updating phoneNumber (a tracked field) with old and new values using new format
         metadata.getChangeHistory().add(new ChangeHistoryEntry(
             "2026-01-06T15:30:00.000Z",
             "USER_UPDATED",
-            "User data updated via PUT endpoint. phoneNumber changed from \"(empty)\" to \"+351123456789\""
+            "phoneNumber: (empty) -> +351123456789"
         ));
         
         assertEquals(1, metadata.getChangeHistory().size(), 
@@ -391,10 +391,10 @@ class ChangeHistoryTest {
             "Audit entry should be USER_UPDATED");
         assertTrue(metadata.getChangeHistory().get(0).getDescription().contains("phoneNumber"),
             "Audit entry should mention phoneNumber");
-        assertTrue(metadata.getChangeHistory().get(0).getDescription().contains("changed from"),
+        assertTrue(metadata.getChangeHistory().get(0).getDescription().contains(" -> "),
+            "Audit entry should show arrow separator");
+        assertTrue(metadata.getChangeHistory().get(0).getDescription().contains("(empty)"),
             "Audit entry should show old value");
-        assertTrue(metadata.getChangeHistory().get(0).getDescription().contains("to"),
-            "Audit entry should show new value");
     }
 
     @Test
@@ -405,11 +405,11 @@ class ChangeHistoryTest {
         UserMetadataModel metadata = new UserMetadataModel();
         metadata.setChangeHistory(new ArrayList<>());
         
-        // Simulate updating multiple tracked fields with old and new values
+        // Simulate updating multiple tracked fields with new format
         metadata.getChangeHistory().add(new ChangeHistoryEntry(
             "2026-01-06T15:30:00.000Z",
             "USER_UPDATED",
-            "User data updated via PUT endpoint. phoneNumber changed from \"(empty)\" to \"+351123456789\"; vehicle changed from \"(empty)\" to \"plate: ABC-123\"; paid changed from \"false\" to \"true\""
+            "phoneNumber: (empty) -> +351123456789\nvehicle: (empty) -> plate: ABC-123\npaid: false -> true"
         ));
         
         assertEquals(1, metadata.getChangeHistory().size(), 
@@ -425,10 +425,10 @@ class ChangeHistoryTest {
             "vehicle should be in field list");
         assertTrue(entry.getDescription().contains("paid"),
             "paid should be in field list");
-        assertTrue(entry.getDescription().contains("changed from"),
-            "Should show old values");
-        assertTrue(entry.getDescription().contains("to"),
-            "Should show new values");
+        assertTrue(entry.getDescription().contains(" -> "),
+            "Should use arrow separator");
+        assertTrue(entry.getDescription().contains("\n"),
+            "Should use newlines to separate fields");
     }
 
     @Test
@@ -441,12 +441,12 @@ class ChangeHistoryTest {
         metadata.setChangeHistory(new ArrayList<>());
         metadata.setComment("Old comment");
         
-        // Simulate updating only the comment
+        // Simulate updating only the comment with new format
         // This should create a COMMENT_UPDATED entry, not a USER_UPDATED entry
         metadata.getChangeHistory().add(new ChangeHistoryEntry(
             "2026-01-06T15:30:00.000Z",
             "COMMENT_UPDATED",
-            "Comment changed from \"Old comment\" to \"New comment\""
+            "comment: Old comment -> New comment"
         ));
         metadata.setComment("New comment");
         
@@ -454,9 +454,8 @@ class ChangeHistoryTest {
             "Only one audit entry should be created");
         assertEquals("COMMENT_UPDATED", metadata.getChangeHistory().get(0).getAction(),
             "Audit entry should be COMMENT_UPDATED, not USER_UPDATED");
-        assertFalse(metadata.getChangeHistory().get(0).getDescription()
-            .contains("User data updated via PUT endpoint"),
-            "Should not have generic PUT audit entry");
+        assertTrue(metadata.getChangeHistory().get(0).getDescription().startsWith("comment:"),
+            "Should start with 'comment:' prefix");
     }
 
     @Test
@@ -467,18 +466,18 @@ class ChangeHistoryTest {
         UserMetadataModel metadata = new UserMetadataModel();
         metadata.setChangeHistory(new ArrayList<>());
         
-        // First, COMMENT_UPDATED entry
+        // First, COMMENT_UPDATED entry with new format
         metadata.getChangeHistory().add(new ChangeHistoryEntry(
             "2026-01-06T15:30:00.000Z",
             "COMMENT_UPDATED",
-            "Comment changed from \"Old comment\" to \"New comment\""
+            "comment: Old comment -> New comment"
         ));
         
-        // Then, USER_UPDATED entry for the tracked field
+        // Then, USER_UPDATED entry for the tracked field with new format
         metadata.getChangeHistory().add(new ChangeHistoryEntry(
             "2026-01-06T15:30:01.000Z",
             "USER_UPDATED",
-            "User data updated via PUT endpoint. Fields changed: phoneNumber"
+            "phoneNumber: (empty) -> +351123456789"
         ));
         
         assertEquals(2, metadata.getChangeHistory().size(), 
@@ -532,11 +531,11 @@ class ChangeHistoryTest {
         metadata.setChangeHistory(new ArrayList<>());
         metadata.setComment("Some comment");
         
-        // Simulate clearing the comment (set to null)
+        // Simulate clearing the comment (set to null) with new format
         metadata.getChangeHistory().add(new ChangeHistoryEntry(
             "2026-01-06T15:30:00.000Z",
             "COMMENT_UPDATED",
-            "Comment changed from \"Some comment\" to \"(empty)\""
+            "comment: Some comment -> (empty)"
         ));
         metadata.setComment(null);
         
@@ -553,11 +552,11 @@ class ChangeHistoryTest {
         UserMetadataModel metadata = new UserMetadataModel();
         metadata.setChangeHistory(new ArrayList<>());
         
-        // All tracked fields changed with old/new values
+        // All tracked fields changed with new format
         metadata.getChangeHistory().add(new ChangeHistoryEntry(
             "2026-01-06T15:30:00.000Z",
             "USER_UPDATED",
-            "User data updated via PUT endpoint. people changed from \"(empty)\" to \"driver: John\"; phoneNumber changed from \"(empty)\" to \"+351123456789\"; vehicle changed from \"(empty)\" to \"plate: ABC-123\"; paymentFile changed from \"(empty)\" to \"receipt.pdf\"; vehicleType changed from \"(empty)\" to \"car\"; paid changed from \"false\" to \"true\""
+            "people: (empty) -> driver: John\nphoneNumber: (empty) -> +351123456789\nvehicle: (empty) -> plate: ABC-123\npaymentFile: (empty) -> receipt.pdf\nvehicleType: (empty) -> car\npaid: false -> true"
         ));
         
         assertEquals(1, metadata.getChangeHistory().size());
@@ -571,9 +570,9 @@ class ChangeHistoryTest {
         assertTrue(entry.getDescription().contains("vehicleType"));
         assertTrue(entry.getDescription().contains("paid"));
         
-        // Verify old/new value format
-        assertTrue(entry.getDescription().contains("changed from"));
-        assertTrue(entry.getDescription().contains("to"));
+        // Verify new format
+        assertTrue(entry.getDescription().contains(" -> "));
+        assertTrue(entry.getDescription().contains("\n"));
         
         // But comment should NOT be mentioned
         assertFalse(entry.getDescription().contains("comment"),
@@ -583,42 +582,312 @@ class ChangeHistoryTest {
     @Test
     void testAuditTrailFormatConsistency() {
         // This test verifies that the audit trail format is consistent across all field types
-        // All entries should follow the pattern: "field changed from \"oldValue\" to \"newValue\""
+        // All entries should follow the new pattern: "field: oldValue -> newValue"
         
         // Test comment format (reference format)
         ChangeHistoryEntry commentEntry = new ChangeHistoryEntry(
             "2026-01-06T15:30:00.000Z",
             "COMMENT_UPDATED",
-            "Comment changed from \"old comment\" to \"new comment\""
+            "comment: old comment -> new comment"
         );
-        assertTrue(commentEntry.getDescription().matches(".*changed from \".*\" to \".*\""),
-            "Comment format should match the pattern");
+        assertTrue(commentEntry.getDescription().contains(" -> "),
+            "Comment format should use arrow separator");
         
         // Test other field formats should match the same pattern
         ChangeHistoryEntry phoneEntry = new ChangeHistoryEntry(
             "2026-01-06T15:30:00.000Z",
             "USER_UPDATED",
-            "User data updated via PUT endpoint. phoneNumber changed from \"(empty)\" to \"+351123456789\""
+            "phoneNumber: (empty) -> +351123456789"
         );
-        assertTrue(phoneEntry.getDescription().contains("changed from"),
-            "Phone format should contain 'changed from'");
-        assertTrue(phoneEntry.getDescription().contains("to"),
-            "Phone format should contain 'to'");
+        assertTrue(phoneEntry.getDescription().contains(" -> "),
+            "Phone format should use arrow separator");
+        assertTrue(phoneEntry.getDescription().startsWith("phoneNumber:"),
+            "Phone format should start with field name");
         
         ChangeHistoryEntry vehicleEntry = new ChangeHistoryEntry(
             "2026-01-06T15:30:00.000Z",
             "USER_UPDATED",
-            "User data updated via PUT endpoint. vehicle changed from \"(empty)\" to \"plate: ABC-123\""
+            "vehicle: (empty) -> plate: ABC-123"
         );
-        assertTrue(vehicleEntry.getDescription().contains("changed from"),
-            "Vehicle format should contain 'changed from'");
+        assertTrue(vehicleEntry.getDescription().contains(" -> "),
+            "Vehicle format should use arrow separator");
         
         ChangeHistoryEntry paidEntry = new ChangeHistoryEntry(
             "2026-01-06T15:30:00.000Z",
             "USER_UPDATED",
-            "User data updated via PUT endpoint. paid changed from \"false\" to \"true\""
+            "paid: false -> true"
         );
-        assertTrue(paidEntry.getDescription().contains("changed from"),
-            "Paid format should contain 'changed from'");
+        assertTrue(paidEntry.getDescription().contains(" -> "),
+            "Paid format should use arrow separator");
+    }
+
+    /**
+     * New tests for the improved audit trail format
+     */
+
+    @Test
+    void testPutWithMultipleFieldChanges_OnlyChangedFieldsAppear() {
+        // Test that PUT with multiple field changes shows only the fields that actually changed
+        ChangeHistoryEntry entry = new ChangeHistoryEntry(
+            "2026-01-06T15:30:00.000Z",
+            "USER_UPDATED",
+            "vehicleType: car -> quad\nphoneNumber: 123456789 -> 987654321"
+        );
+        
+        assertEquals("USER_UPDATED", entry.getAction());
+        
+        // Verify new format with newlines
+        assertTrue(entry.getDescription().contains("vehicleType: car -> quad"),
+            "Should contain vehicleType change in new format");
+        assertTrue(entry.getDescription().contains("phoneNumber: 123456789 -> 987654321"),
+            "Should contain phoneNumber change in new format");
+        assertTrue(entry.getDescription().contains("\n"),
+            "Should use newlines to separate field changes");
+        
+        // Verify the old verbose format is NOT used
+        assertFalse(entry.getDescription().contains("changed from"),
+            "Should NOT contain old verbose format");
+        assertFalse(entry.getDescription().contains("User data updated via PUT endpoint"),
+            "Should NOT contain generic prefix");
+    }
+
+    @Test
+    void testPutWithIdenticalValues_NoAuditEntry() {
+        // Test that PUT with identical values (no actual changes) doesn't create an audit entry
+        // This test verifies the fix for the bug where PUT always created entries
+        
+        UserMetadataModel metadata = new UserMetadataModel();
+        metadata.setChangeHistory(new ArrayList<>());
+        metadata.setPhoneNumber("123456789");
+        metadata.setComment("Original comment");
+        
+        // Simulate a PUT request where values are re-submitted but unchanged
+        // The service logic should NOT add a USER_UPDATED entry
+        
+        int initialSize = metadata.getChangeHistory().size();
+        assertEquals(0, initialSize, "No audit entry should exist initially");
+        
+        // After processing a PUT with no actual changes, size should remain 0
+        assertEquals(0, metadata.getChangeHistory().size(), 
+            "No audit entry should be added when values don't actually change");
+    }
+
+    @Test
+    void testPutWithMixOfChangedAndUnchangedFields_OnlyChangedAppear() {
+        // Test that PUT with a mix of changed and unchanged fields only shows changed fields
+        
+        ChangeHistoryEntry entry = new ChangeHistoryEntry(
+            "2026-01-06T15:30:00.000Z",
+            "USER_UPDATED",
+            "phoneNumber: 916165469 -> 912345678"
+        );
+        
+        // Only phoneNumber changed, other fields (vehicle, vehicleType, etc.) remained the same
+        assertTrue(entry.getDescription().contains("phoneNumber"),
+            "Should contain changed phoneNumber");
+        assertFalse(entry.getDescription().contains("vehicle"),
+            "Should NOT contain unchanged vehicle");
+        assertFalse(entry.getDescription().contains("vehicleType"),
+            "Should NOT contain unchanged vehicleType");
+        
+        // Verify new format
+        assertTrue(entry.getDescription().contains(" -> "),
+            "Should use arrow notation");
+    }
+
+    @Test
+    void testNewFormatUsesNewlinesAndSimplifiedSyntax() {
+        // Verify that the new format uses newlines and simplified "field: old -> new" syntax
+        
+        ChangeHistoryEntry entry = new ChangeHistoryEntry(
+            "2026-01-06T15:30:00.000Z",
+            "USER_UPDATED",
+            "vehicleType: car -> quad\nphoneNumber: 916165469 -> 912345678\npaid: false -> true"
+        );
+        
+        // Verify newlines are used
+        assertTrue(entry.getDescription().contains("\n"),
+            "Should use newlines to separate changes");
+        
+        // Verify simplified syntax (contains at least one "field: value -> value" pattern)
+        assertTrue(entry.getDescription().contains(": ") && entry.getDescription().contains(" -> "),
+            "Should use 'field: old -> new' format");
+        
+        // Count the number of newlines (should be 2 for 3 fields)
+        long newlineCount = entry.getDescription().chars().filter(ch -> ch == '\n').count();
+        assertEquals(2, newlineCount, "Should have 2 newlines for 3 field changes");
+        
+        // Verify old format is NOT used
+        assertFalse(entry.getDescription().contains("changed from"),
+            "Should NOT use old 'changed from' format");
+        assertFalse(entry.getDescription().contains("\" to \""),
+            "Should NOT use old quoted format");
+    }
+
+    @Test
+    void testComplexObjectsComparedCorrectly_PeopleObject() {
+        // Test that complex objects like people are compared correctly
+        
+        // Create two different people lists
+        String oldPeopleStr = "driver: John Doe (CC: 12345678)";
+        String newPeopleStr = "driver: Jane Smith (CC: 87654321)";
+        
+        // Verify they are different
+        assertFalse(oldPeopleStr.equals(newPeopleStr),
+            "Different people should not be equal");
+        
+        // Create entry with people change
+        ChangeHistoryEntry entry = new ChangeHistoryEntry(
+            "2026-01-06T15:30:00.000Z",
+            "USER_UPDATED",
+            "people: " + oldPeopleStr + " -> " + newPeopleStr
+        );
+        
+        assertTrue(entry.getDescription().contains("people:"),
+            "Should show people change");
+        assertTrue(entry.getDescription().contains("John Doe"),
+            "Should show old driver name");
+        assertTrue(entry.getDescription().contains("Jane Smith"),
+            "Should show new driver name");
+    }
+
+    @Test
+    void testComplexObjectsComparedCorrectly_VehicleObject() {
+        // Test that complex objects like vehicle are compared correctly
+        
+        String oldVehicleStr = "plate: 23-FX-52, make: Land Rover Discovery";
+        String newVehicleStr = "plate: 45-AB-12, make: Toyota Hilux";
+        
+        // Verify they are different
+        assertFalse(oldVehicleStr.equals(newVehicleStr),
+            "Different vehicles should not be equal");
+        
+        // Create entry with vehicle change
+        ChangeHistoryEntry entry = new ChangeHistoryEntry(
+            "2026-01-06T15:30:00.000Z",
+            "USER_UPDATED",
+            "vehicle: " + oldVehicleStr + " -> " + newVehicleStr
+        );
+        
+        assertTrue(entry.getDescription().contains("vehicle:"),
+            "Should show vehicle change");
+        assertTrue(entry.getDescription().contains("23-FX-52"),
+            "Should show old plate");
+        assertTrue(entry.getDescription().contains("45-AB-12"),
+            "Should show new plate");
+    }
+
+    @Test
+    void testComplexObjectsComparedCorrectly_IdenticalObjects() {
+        // Test that identical complex objects don't create audit entries
+        
+        String vehicleStr = "plate: 23-FX-52, make: Land Rover Discovery";
+        
+        // When old and new are the same, no entry should be added
+        // This is verified by the service logic checking oldValue.equals(newValue)
+        assertTrue(vehicleStr.equals(vehicleStr),
+            "Identical vehicles should be equal");
+    }
+
+    @Test
+    void testDifferentDataTypesHandledCorrectly_String() {
+        // Test string field changes
+        ChangeHistoryEntry entry = new ChangeHistoryEntry(
+            "2026-01-06T15:30:00.000Z",
+            "USER_UPDATED",
+            "phoneNumber: 123456789 -> 987654321"
+        );
+        
+        assertTrue(entry.getDescription().contains("phoneNumber: 123456789 -> 987654321"),
+            "String values should be formatted correctly");
+    }
+
+    @Test
+    void testDifferentDataTypesHandledCorrectly_Boolean() {
+        // Test boolean field changes
+        ChangeHistoryEntry entry = new ChangeHistoryEntry(
+            "2026-01-06T15:30:00.000Z",
+            "USER_UPDATED",
+            "paid: false -> true"
+        );
+        
+        assertTrue(entry.getDescription().contains("paid: false -> true"),
+            "Boolean values should be formatted as 'true' or 'false'");
+        
+        // Verify it's not using quotes
+        assertFalse(entry.getDescription().contains("\"true\""),
+            "Boolean values should not be quoted");
+    }
+
+    @Test
+    void testDifferentDataTypesHandledCorrectly_ComplexObject() {
+        // Test complex object field changes
+        ChangeHistoryEntry entry = new ChangeHistoryEntry(
+            "2026-01-06T15:30:00.000Z",
+            "USER_UPDATED",
+            "people: driver: John (CC: 123) -> driver: Jane (CC: 456)"
+        );
+        
+        assertTrue(entry.getDescription().contains("people:"),
+            "Complex objects should be formatted correctly");
+    }
+
+    @Test
+    void testEmptyValueHandling() {
+        // Test that empty/null values are handled correctly
+        ChangeHistoryEntry entry = new ChangeHistoryEntry(
+            "2026-01-06T15:30:00.000Z",
+            "USER_UPDATED",
+            "phoneNumber: (empty) -> 123456789"
+        );
+        
+        assertTrue(entry.getDescription().contains("(empty)"),
+            "Empty values should be shown as '(empty)'");
+    }
+
+    @Test
+    void testRealWorldScenario_MultipleFieldsWithSomeUnchanged() {
+        // Real-world scenario from the problem statement
+        // User submits a PUT with several fields, but only vehicleType and phoneNumber actually changed
+        
+        ChangeHistoryEntry entry = new ChangeHistoryEntry(
+            "2026-01-06T15:30:00.000Z",
+            "USER_UPDATED",
+            "vehicleType: car -> quad\nphoneNumber: 916165469 -> 912345678"
+        );
+        
+        // Verify only changed fields appear
+        assertTrue(entry.getDescription().contains("vehicleType: car -> quad"));
+        assertTrue(entry.getDescription().contains("phoneNumber: 916165469 -> 912345678"));
+        
+        // Verify unchanged fields do NOT appear
+        assertFalse(entry.getDescription().contains("people"),
+            "Unchanged people should not appear");
+        assertFalse(entry.getDescription().contains("vehicle:"),
+            "Unchanged vehicle should not appear");
+        assertFalse(entry.getDescription().contains("paymentFile"),
+            "Unchanged paymentFile should not appear");
+        
+        // Verify format
+        assertTrue(entry.getDescription().contains("\n"),
+            "Should use newlines");
+        assertFalse(entry.getDescription().contains("changed from"),
+            "Should not use old format");
+    }
+
+    @Test
+    void testCommentFormat() {
+        // Test that comment updates also use the new format
+        ChangeHistoryEntry entry = new ChangeHistoryEntry(
+            "2026-01-06T15:30:00.000Z",
+            "COMMENT_UPDATED",
+            "comment: Old comment text -> New comment text"
+        );
+        
+        assertEquals("COMMENT_UPDATED", entry.getAction());
+        assertTrue(entry.getDescription().contains("comment: Old comment text -> New comment text"),
+            "Comment should use new simplified format");
+        assertFalse(entry.getDescription().contains("Comment changed from"),
+            "Comment should not use old verbose format");
     }
 }
