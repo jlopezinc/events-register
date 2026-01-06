@@ -93,6 +93,27 @@ public class EventV1Service {
         ChangeHistoryEntry entry = new ChangeHistoryEntry(timestamp, action, description);
         metadata.getChangeHistory().add(entry);
     }
+    
+    /**
+     * Sanitizes a string for safe inclusion in change history descriptions.
+     * Escapes special characters that could cause issues with JSON serialization or log injection.
+     * 
+     * @param text The text to sanitize (can be null)
+     * @return The sanitized text, or "(empty)" if null or blank
+     */
+    private String sanitizeForDescription(String text) {
+        if (text == null || text.isBlank()) {
+            return "(empty)";
+        }
+        
+        // Replace problematic characters
+        return text
+            .replace("\\", "\\\\")  // Backslash
+            .replace("\"", "\\\"")  // Double quote
+            .replace("\n", "\\n")   // Newline
+            .replace("\r", "\\r")   // Carriage return
+            .replace("\t", "\\t");  // Tab
+    }
 
     public Uni<UserModel> getByEventAndEmail (String event, String email){
         Key partitioKey = Key.builder().partitionValue(event).sortValue(email).build();
@@ -306,9 +327,10 @@ public class EventV1Service {
                                         // Add the previous comment to history only if it exists and is not blank
                                         if (StringUtils.isNotBlank(existingComment)) {
                                             newMetadata.getCommentsHistory().add(existingComment);
-                                            // Also add to change history
+                                            // Also add to change history with sanitized comment text
                                             addChangeHistoryEntry(newMetadata, "COMMENT_UPDATED", 
-                                                "Comment changed from \"" + existingComment + "\" to \"" + (newComment != null ? newComment : "(empty)") + "\"");
+                                                "Comment changed from \"" + sanitizeForDescription(existingComment) + 
+                                                "\" to \"" + sanitizeForDescription(newComment) + "\"");
                                         }
                                     } else {
                                         // Preserve existing comments history
@@ -436,9 +458,10 @@ public class EventV1Service {
                             // Add the previous comment to history
                             metadata.getCommentsHistory().add(existingComment);
                             
-                            // Also add to change history
+                            // Also add to change history with sanitized comment text
                             addChangeHistoryEntry(metadata, "COMMENT_UPDATED", 
-                                "Comment changed from \"" + existingComment + "\" to \"" + (newComment != null ? newComment : "(empty)") + "\"");
+                                "Comment changed from \"" + sanitizeForDescription(existingComment) + 
+                                "\" to \"" + sanitizeForDescription(newComment) + "\"");
                         }
                         
                         // Update the comment with the new value (including null to clear it)

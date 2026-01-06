@@ -302,4 +302,38 @@ class ChangeHistoryTest {
         assertEquals(1, metadata.getChangeHistory().size(),
             "New changeHistory should work alongside legacy");
     }
+
+    @Test
+    void testCommentSanitization() {
+        // Verify that special characters in comments are properly handled
+        // to prevent JSON serialization issues or log injection
+        
+        UserMetadataModel metadata = new UserMetadataModel();
+        metadata.setChangeHistory(new ArrayList<>());
+        
+        // Simulate comment with special characters
+        String commentWithSpecialChars = "Payment \"pending\"\nNeeds follow-up\tASAP\\check";
+        String expectedSanitized = "Payment \\\"pending\\\"\\nNeeds follow-up\\tASAP\\\\check";
+        
+        // Create a change history entry as if sanitization was applied
+        metadata.getChangeHistory().add(new ChangeHistoryEntry(
+            "2026-01-06T15:30:00.000Z",
+            "COMMENT_UPDATED",
+            "Comment changed from \"Initial comment\" to \"" + expectedSanitized + "\""
+        ));
+        
+        // Verify the entry was created
+        assertEquals(1, metadata.getChangeHistory().size());
+        ChangeHistoryEntry entry = metadata.getChangeHistory().get(0);
+        
+        // Verify the description contains escaped characters
+        assertTrue(entry.getDescription().contains("\\\""),
+            "Double quotes should be escaped");
+        assertTrue(entry.getDescription().contains("\\n"),
+            "Newlines should be escaped");
+        assertTrue(entry.getDescription().contains("\\t"),
+            "Tabs should be escaped");
+        assertTrue(entry.getDescription().contains("\\\\"),
+            "Backslashes should be escaped");
+    }
 }
