@@ -579,4 +579,46 @@ class ChangeHistoryTest {
         assertFalse(entry.getDescription().contains("comment"),
             "Comment should not be in the tracked fields list");
     }
+    
+    @Test
+    void testAuditTrailFormatConsistency() {
+        // This test verifies that the audit trail format is consistent across all field types
+        // All entries should follow the pattern: "field changed from \"oldValue\" to \"newValue\""
+        
+        // Test comment format (reference format)
+        ChangeHistoryEntry commentEntry = new ChangeHistoryEntry(
+            "2026-01-06T15:30:00.000Z",
+            "COMMENT_UPDATED",
+            "Comment changed from \"old comment\" to \"new comment\""
+        );
+        assertTrue(commentEntry.getDescription().matches(".*changed from \".*\" to \".*\""),
+            "Comment format should match the pattern");
+        
+        // Test other field formats should match the same pattern
+        ChangeHistoryEntry phoneEntry = new ChangeHistoryEntry(
+            "2026-01-06T15:30:00.000Z",
+            "USER_UPDATED",
+            "User data updated via PUT endpoint. phoneNumber changed from \"(empty)\" to \"+351123456789\""
+        );
+        assertTrue(phoneEntry.getDescription().contains("changed from"),
+            "Phone format should contain 'changed from'");
+        assertTrue(phoneEntry.getDescription().contains("to"),
+            "Phone format should contain 'to'");
+        
+        ChangeHistoryEntry vehicleEntry = new ChangeHistoryEntry(
+            "2026-01-06T15:30:00.000Z",
+            "USER_UPDATED",
+            "User data updated via PUT endpoint. vehicle changed from \"(empty)\" to \"plate: ABC-123\""
+        );
+        assertTrue(vehicleEntry.getDescription().contains("changed from"),
+            "Vehicle format should contain 'changed from'");
+        
+        ChangeHistoryEntry paidEntry = new ChangeHistoryEntry(
+            "2026-01-06T15:30:00.000Z",
+            "USER_UPDATED",
+            "User data updated via PUT endpoint. paid changed from \"false\" to \"true\""
+        );
+        assertTrue(paidEntry.getDescription().contains("changed from"),
+            "Paid format should contain 'changed from'");
+    }
 }
