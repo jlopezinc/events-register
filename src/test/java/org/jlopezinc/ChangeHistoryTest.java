@@ -504,15 +504,16 @@ class ChangeHistoryTest {
             "Comment is the only non-tracked field (has its own audit entry type)");
         
         // Verify tracked fields list
-        assertTrue(java.util.Arrays.asList(trackedFields).contains("people"));
-        assertTrue(java.util.Arrays.asList(trackedFields).contains("phoneNumber"));
-        assertTrue(java.util.Arrays.asList(trackedFields).contains("vehicle"));
-        assertTrue(java.util.Arrays.asList(trackedFields).contains("paymentFile"));
-        assertTrue(java.util.Arrays.asList(trackedFields).contains("vehicleType"));
-        assertTrue(java.util.Arrays.asList(trackedFields).contains("paid"));
+        java.util.List<String> trackedFieldsList = java.util.Arrays.asList(trackedFields);
+        assertTrue(trackedFieldsList.contains("people"));
+        assertTrue(trackedFieldsList.contains("phoneNumber"));
+        assertTrue(trackedFieldsList.contains("vehicle"));
+        assertTrue(trackedFieldsList.contains("paymentFile"));
+        assertTrue(trackedFieldsList.contains("vehicleType"));
+        assertTrue(trackedFieldsList.contains("paid"));
         
         // Verify comment is not in tracked fields
-        assertFalse(java.util.Arrays.asList(trackedFields).contains("comment"));
+        assertFalse(trackedFieldsList.contains("comment"));
     }
 
     @Test
@@ -563,7 +564,7 @@ class ChangeHistoryTest {
         assertTrue(entry.getDescription().contains("paid"));
         
         // But comment should NOT be mentioned
-        assertFalse(entry.getDescription().matches(".*\\bcomment\\b.*"),
+        assertFalse(entry.getDescription().contains("comment"),
             "Comment should not be in the tracked fields list");
     }
 }
