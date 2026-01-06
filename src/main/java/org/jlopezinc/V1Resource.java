@@ -57,7 +57,7 @@ public class V1Resource {
     }
 
     @PUT
-    @Path("/{event}/{email}/checkin")
+    @Path("/{event}/{email}/")
     @Produces(MediaType.APPLICATION_JSON)
     public Uni<UserModel> checkInToken(@PathParam("event") String event, @PathParam("email") String email){
         String cognitoUser = getCognitoUser();
@@ -99,14 +99,6 @@ public class V1Resource {
             throw new UnauthorizedException();
         }
         return eventV1Service.updatePaymentInfo(event, email, body);
-    }
-
-    @PUT
-    @Path("/{event}/{email}")
-    @Consumes(MediaType.APPLICATION_JSON)
-    @Produces(MediaType.APPLICATION_JSON)
-    public Uni<UserModel> updateUserMetadata(@PathParam("event") String event, @PathParam("email") String email, UserModel body){
-        return eventV1Service.updateUserMetadata(event, email, body);
     }
 
     @DELETE
