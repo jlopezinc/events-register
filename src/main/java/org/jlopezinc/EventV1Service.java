@@ -31,8 +31,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
-import java.text.SimpleDateFormat;
-import java.util.TimeZone;
+import java.time.Instant;
 
 @ApplicationScoped
 public class EventV1Service {
@@ -67,19 +66,29 @@ public class EventV1Service {
      * The change history is maintained in chronological order (oldest first), allowing
      * administrators to track the complete lifecycle of a user's registration.
      * 
-     * @param metadata The user metadata to add the change history entry to
-     * @param action The type of action performed (e.g., "USER_REGISTERED", "PAYMENT_ADDED")
-     * @param description A human-friendly description of what changed
+     * @param metadata The user metadata to add the change history entry to (must not be null)
+     * @param action The type of action performed (e.g., "USER_REGISTERED", "PAYMENT_ADDED") (must not be null)
+     * @param description A human-friendly description of what changed (must not be null)
+     * @throws IllegalArgumentException if any parameter is null
      */
     private void addChangeHistoryEntry(UserMetadataModel metadata, String action, String description) {
+        // Validate input parameters
+        if (metadata == null) {
+            throw new IllegalArgumentException("metadata cannot be null");
+        }
+        if (action == null || action.trim().isEmpty()) {
+            throw new IllegalArgumentException("action cannot be null or empty");
+        }
+        if (description == null || description.trim().isEmpty()) {
+            throw new IllegalArgumentException("description cannot be null or empty");
+        }
+        
         if (metadata.getChangeHistory() == null) {
             metadata.setChangeHistory(new ArrayList<>());
         }
         
-        // Create ISO 8601 timestamp
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'");
-        sdf.setTimeZone(TimeZone.getTimeZone("UTC"));
-        String timestamp = sdf.format(new Date());
+        // Create ISO 8601 timestamp using thread-safe java.time API
+        String timestamp = Instant.now().toString();
         
         ChangeHistoryEntry entry = new ChangeHistoryEntry(timestamp, action, description);
         metadata.getChangeHistory().add(entry);
