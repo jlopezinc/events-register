@@ -1,13 +1,14 @@
 package org.jlopezinc;
 
-import io.quarkus.mailer.Mail;
-import io.quarkus.mailer.reactive.ReactiveMailer;
 import io.quarkus.qute.Engine;
 import io.quarkus.qute.Template;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Any;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.NotFoundException;
+import org.jlopezinc.email.EmailSender;
 import org.jlopezinc.model.UserModel;
 
 @ApplicationScoped
@@ -20,7 +21,8 @@ public class MailerService {
     private static final String TEMPLATE_ALMOST_THERE = "almostThere";
 
     @Inject
-    ReactiveMailer mailer;
+    @Any
+    Instance<EmailSender> emailSenderInstance;
 
     @Inject
     Engine quteEngine;
@@ -40,11 +42,11 @@ public class MailerService {
                 .data("userModel", userModel)
                 .render();
 
-        return mailer.send(Mail.withHtml(
+        return emailSenderInstance.get().send(
                 userModel.getUserEmail(),
                 resolveSubject(templateName, userModel),
                 htmlBody
-        ));
+        );
     }
 
     private Template resolveTemplate(String eventName, String templateName) {
