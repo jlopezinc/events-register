@@ -6,7 +6,6 @@ import io.quarkus.logging.Log;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.core.NoContentException;
 import org.jlopezinc.dynamodb.CounterDB;
 import org.jlopezinc.dynamodb.UserModelDB;
@@ -32,6 +31,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 import java.time.Instant;
+import java.time.Duration;
 
 @ApplicationScoped
 public class EventV1Service {
@@ -491,10 +491,20 @@ public class EventV1Service {
                                         }
                                         return Uni.createFrom().voidItem();
                                     })
-                                    .call(() -> mailerService.sendRegistrationEmail(userModelDbTransform.apply(userModelDB)));
+                                    .call(() -> sendRegistrationEmailWithTimeout(userModelDB));
                         }
                 ));
     }
+
+    private Uni<Void> sendRegistrationEmailWithTimeout(UserModelDB userModelDB) {
+        return mailerService.sendRegistrationEmail(userModelDbTransform.apply(userModelDB))
+                .ifNoItem().after(Duration.ofSeconds(8)).fail()
+                .invoke(() -> Log.debug("Registration email sent to " + userModelDB.getUserEmail()))
+                .onFailure().invoke(failure ->
+                        Log.error("Registration email failed for " + userModelDB.getUserEmail(), failure))
+                .onFailure().recoverWithNull();
+    }
+
     public Uni<Void> updatePaymentInfo(String event, String email, PaymentInfo paymentInfo) {
         return  Uni.createFrom().voidItem().call(() -> getByEventAndEmail(event, email)
                 .call(userModel -> {
@@ -857,17 +867,13 @@ public class EventV1Service {
 
     UserModelDB transformWebHook(String event, String rawWebhook, ObjectMapper objectMapper) throws JsonProcessingException {
         WebhookModel webhookModel = objectMapper.readValue(rawWebhook, WebhookModel.class);
-        String vehicleType;
-        switch (webhookModel.getVehicleType()){
-            case "Mota":
-                vehicleType = "motorcycle";
-                break;
-            case "Quad":
-                vehicleType = "quad";
-                break;
-            case "Jipe":
-            default:
-                vehicleType = "car";
+        String vehicleType = null;
+        if (webhookModel.getVehicleType() != null) {
+            vehicleType = switch (webhookModel.getVehicleType()) {
+                case "Mota" -> "motorcycle";
+                case "Quad" -> "quad";
+                default -> "car";
+            };
         }
 
         UserMetadataModel userMetadataModel = new UserMetadataModel();
@@ -954,17 +960,10 @@ public class EventV1Service {
     }
 
     public Uni<Void> sendEmailTemplate(String event, String email, String emailTemplate) {
-        return switch (emailTemplate) {
-            case "userRegistration" -> Uni.createFrom().voidItem().call(() -> getByEventAndEmail(event, email)
-                    .onItem().call((userModel) ->
-                            mailerService.sendRegistrationEmail(userModel)
-                    ));
-            case "almostThere" -> Uni.createFrom().voidItem().call(() -> getByEventAndEmail(event, email)
-                    .onItem().call((userModel) ->
-                            mailerService.sendAlmostThere(userModel)
-                    ));
-            default -> Uni.createFrom().failure(NotFoundException::new);
-        };
+        return Uni.createFrom().voidItem().call(() -> getByEventAndEmail(event, email)
+                .onItem().call((userModel) ->
+                        mailerService.sendTemplate(event, emailTemplate, userModel)
+                ));
     }
 
     public Uni<ReconcileCountersResponse> reconcileCounters(String event) {

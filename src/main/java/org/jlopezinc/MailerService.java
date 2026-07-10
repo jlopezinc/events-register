@@ -1,37 +1,76 @@
 package org.jlopezinc;
 
-import io.quarkus.qute.CheckedTemplate;
-import io.quarkus.mailer.MailTemplate;
+import io.quarkus.mailer.Mail;
 import io.quarkus.mailer.reactive.ReactiveMailer;
+import io.quarkus.qute.Engine;
+import io.quarkus.qute.Template;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.ws.rs.NotFoundException;
 import org.jlopezinc.model.UserModel;
 
 @ApplicationScoped
 public class MailerService {
 
+    private static final String TEMPLATE_ROOT = "MailerService";
+    private static final String EVENT_TEMPLATE_ROOT = TEMPLATE_ROOT + "/events";
+
+    private static final String TEMPLATE_USER_REGISTRATION = "userRegistration";
+    private static final String TEMPLATE_ALMOST_THERE = "almostThere";
+
     @Inject
     ReactiveMailer mailer;
 
-    @CheckedTemplate
-    static class Templates {
-        public static native MailTemplate.MailTemplateInstance userRegistration (UserModel userModel);
-        public static native MailTemplate.MailTemplateInstance almostThere (UserModel userModel);
-    }
+    @Inject
+    Engine quteEngine;
 
     public Uni<Void> sendRegistrationEmail(UserModel userModel){
-        return Templates.userRegistration(userModel)
-                .to(userModel.getUserEmail())
-                .subject("Inscrição confirmada - " + userModel.getMetadata().getPeople().get(0).getName())
-                .send();
+        return sendTemplate(userModel.getEventName(), TEMPLATE_USER_REGISTRATION, userModel);
     }
 
     public Uni<Void> sendAlmostThere(UserModel userModel){
-        return Templates.almostThere(userModel)
-                .to(userModel.getUserEmail())
-                .subject("Está quase!")
-                .send();
+        return sendTemplate(userModel.getEventName(), TEMPLATE_ALMOST_THERE, userModel);
     }
 
+    public Uni<Void> sendTemplate(String eventName, String templateName, UserModel userModel) {
+        Template template = resolveTemplate(eventName, templateName);
+        String htmlBody = template
+                .instance()
+                .data("userModel", userModel)
+                .render();
+
+        return mailer.send(Mail.withHtml(
+                userModel.getUserEmail(),
+                resolveSubject(templateName, userModel),
+                htmlBody
+        ));
+    }
+
+    private Template resolveTemplate(String eventName, String templateName) {
+        Template eventTemplate = null;
+        if (eventName != null && !eventName.isBlank()) {
+            eventTemplate = quteEngine.getTemplate(EVENT_TEMPLATE_ROOT + "/" + eventName + "/" + templateName);
+        }
+
+        if (eventTemplate != null) {
+            return eventTemplate;
+        }
+
+        Template defaultTemplate = quteEngine.getTemplate(TEMPLATE_ROOT + "/" + templateName);
+        if (defaultTemplate != null) {
+            return defaultTemplate;
+        }
+
+        throw new NotFoundException("Template not found: " + templateName);
+    }
+
+    private String resolveSubject(String templateName, UserModel userModel) {
+        return switch (templateName) {
+            case TEMPLATE_USER_REGISTRATION ->
+                    "Inscrição confirmada - " + userModel.getMetadata().getPeople().get(0).getName();
+            case TEMPLATE_ALMOST_THERE -> "Está quase!";
+            default -> throw new NotFoundException("Template not found: " + templateName);
+        };
+    }
 }
