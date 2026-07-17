@@ -18,6 +18,12 @@
         Policies: 
           - AWSLambdaBasicExecutionRole
           - AmazonDynamoDBFullAccess
+          - Statement:
+            - Effect: Allow
+              Action:
+                - ses:SendEmail
+                - ses:SendRawEmail
+              Resource: "*"
         Timeout: 15
         Environment:
           Variables:

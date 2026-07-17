@@ -22,6 +22,118 @@ mvn quarkus:dev -Dquarkus.dynamodb.aws.credentials.type=static -Dquarkus.dynamod
 sam local start-api --template target/sam.jvm.yaml
 ```
 
+# Email provider
+
+The app supports two email providers, controlled by the `app.mailer.provider` property:
+
+| Value | Description |
+|-------|-------------|
+| `ses` | **Default.** AWS Simple Email Service — uses the Lambda execution role (no credentials needed). |
+| `smtp` | Legacy Gmail/SMTP path via Quarkus Mailer. Requires SMTP credentials. |
+
+## AWS SES setup (AWS Console)
+
+1. **Verify the sender address or domain**
+   - Go to **Amazon SES → Verified identities** and create a new identity.
+   - For a single email address (e.g. `registottamigosdonatal@gmail.com`), choose *Email address* and confirm the verification link AWS sends.
+   - For a custom domain, choose *Domain* and add the DKIM/TXT DNS records it provides.
+
+2. **Move out of the SES sandbox** (production only)
+   - New SES accounts start in *sandbox mode* — you can only send to verified addresses.
+   - To send to arbitrary recipients, request production access at **SES → Account dashboard → Request production access**.
+
+3. **Grant the Lambda function permission to send email**
+   - The `sam.native.yaml` already attaches an inline policy with `ses:SendEmail` and `ses:SendRawEmail` to the Lambda execution role.
+   - No manual IAM changes are needed when deploying via `sam deploy`.
+
+4. **Confirm the sender address** in `application.properties`:
+   ```
+   quarkus.mailer.from=registottamigosdonatal@gmail.com
+   ```
+   This must match an identity verified in SES (step 1).
+
+## Testing locally
+
+### JVM mode — using LocalStack
+
+Start LocalStack (requires Docker):
+```shell
+docker run --rm -p 4566:4566 localstack/localstack
+```
+
+Verify a sender address inside LocalStack (no real email is sent):
+```shell
+aws --endpoint-url=http://localhost:4566 ses verify-email-identity \
+  --email-address registottamigosdonatal@gmail.com
+```
+
+Run Quarkus dev, overriding SES and DynamoDB endpoints:
+```shell
+mvn quarkus:dev \
+  -Dquarkus.dynamodb.aws.credentials.type=static \
+  -Dquarkus.dynamodb.aws.credentials.static-provider.access-key-id=test \
+  -Dquarkus.dynamodb.aws.credentials.static-provider.secret-access-key=test \
+  -Dquarkus.dynamodb.endpoint-override=http://localhost:4566 \
+  -Dquarkus.ses.endpoint-override=http://localhost:4566 \
+  -Dquarkus.ses.aws.credentials.type=static \
+  -Dquarkus.ses.aws.credentials.static-provider.access-key-id=test \
+  -Dquarkus.ses.aws.credentials.static-provider.secret-access-key=test
+```
+
+You can also enable those overrides permanently in `application.properties` for local development by uncommenting the `LocalStack` block in the `# Local SES testing via LocalStack` section.
+
+### Native image — SAM + LocalStack
+
+Build the native image:
+```shell
+mvn install -Dnative -DskipTests -Dquarkus.native.container-build=true
+```
+
+Start LocalStack (if not already running):
+```shell
+docker run --rm -p 4566:4566 localstack/localstack
+```
+
+Verify the sender address in LocalStack (same as above).
+
+Start SAM local with the SES and DynamoDB endpoint overrides passed as environment variables:
+```shell
+sam local start-api --template target/sam.native.yaml \
+  --env-vars /tmp/local-env.json
+```
+
+`/tmp/local-env.json` (not committed — create locally):
+```json
+{
+  "EventsregisterNative": {
+    "QUARKUS_SES_ENDPOINT_OVERRIDE": "http://host.docker.internal:4566",
+    "QUARKUS_SES_AWS_CREDENTIALS_TYPE": "static",
+    "QUARKUS_SES_AWS_CREDENTIALS_STATIC_PROVIDER_ACCESS_KEY_ID": "test",
+    "QUARKUS_SES_AWS_CREDENTIALS_STATIC_PROVIDER_SECRET_ACCESS_KEY": "test",
+    "QUARKUS_DYNAMODB_ENDPOINT_OVERRIDE": "http://host.docker.internal:4566",
+    "QUARKUS_DYNAMODB_AWS_CREDENTIALS_TYPE": "static",
+    "QUARKUS_DYNAMODB_AWS_CREDENTIALS_STATIC_PROVIDER_ACCESS_KEY_ID": "test",
+    "QUARKUS_DYNAMODB_AWS_CREDENTIALS_STATIC_PROVIDER_SECRET_ACCESS_KEY": "test"
+  }
+}
+```
+
+> **Note:** SAM local runs containers; use `host.docker.internal` (macOS/Windows) or the host gateway IP (Linux) to reach LocalStack from inside the Lambda container.
+
+## Switching back to Gmail/SMTP
+
+Set `app.mailer.provider=smtp` and uncomment the SMTP block in `application.properties`:
+```properties
+app.mailer.provider=smtp
+quarkus.mailer.auth-methods=DIGEST-MD5 CRAM-SHA256 CRAM-SHA1 CRAM-MD5 PLAIN LOGIN
+quarkus.mailer.host=smtp.gmail.com
+quarkus.mailer.port=587
+quarkus.mailer.start-tls=REQUIRED
+quarkus.mailer.username=registottamigosdonatal@gmail.com
+quarkus.mailer.******
+quarkus.mailer.mock=false
+```
+
 # Test curls
 This section has examples for this service endpoints.
 
